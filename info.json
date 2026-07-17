@@ -1,0 +1,16 @@
+{
+  "title": "WAF Pro",
+  "name": "wafpro",
+  "type": "System Tools",
+  "ps": "Standalone Nginx WAF — region rules, SQLi/XSS filtering, CC defense, attack analytics and a modern dashboard. Self-contained: no other WAF plugin required.",
+  "versions": "2.0",
+  "version": "2.0",
+  "shell": "install.sh",
+  "checks": "/www/server/panel/plugin/wafpro",
+  "author": "ezel",
+  "home": "https://github.com/",
+  "date": "2026-07-17",
+  "default": false,
+  "display": 0,
+  "price": 0
+}

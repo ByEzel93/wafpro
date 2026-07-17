@@ -1,0 +1,2437 @@
+<div id="wafpro-app">
+  <style>
+  /* ================= WAF Pro Panel — modern skin =================
+     No transform/scale/translate on hover anywhere: elements never move
+     under the cursor, only colours change. */
+  /* Design tokens only. These must also reach our modals, which layer renders
+     outside #wafpro-app — but ONLY the custom properties may be shared:
+     putting layout here would restyle every panel popup and break them. */
+  #wafpro-app, .wp-modal{
+    --wp-green:#20a53a; --wp-green-d:#1b9130; --wp-green-s:#eef7f0;
+    --wp-text:#1f2329; --wp-text2:#5c6470; --wp-text3:#9aa1ab;
+    --wp-border:#ebedf0; --wp-bg:#f5f6f8; --wp-card:#fff;
+    --wp-red:#ef4d4d; --wp-orange:#fa8c16; --wp-blue:#3b82f6; --wp-cyan:#22c3c3;
+  }
+  /* Layout for our app container only — never for .layui-layer. */
+  #wafpro-app{
+    position:relative; display:flex; flex-direction:column; overflow:hidden;
+    background:var(--wp-bg); color:var(--wp-text); font-size:13px;
+    font-family:-apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,"Helvetica Neue",Arial,"Microsoft Yahei",sans-serif;
+    -webkit-font-smoothing:antialiased;
+  }
+  #wafpro-app *{box-sizing:border-box}
+
+  /* ---- top tabs ---- */
+  #wafpro-app .wp-tabs{flex:none;display:flex;align-items:center;gap:2px;background:var(--wp-card);
+    border-bottom:1px solid var(--wp-border);padding:0 12px;overflow-x:auto}
+  #wafpro-app .wp-tab{padding:14px 18px;font-size:14px;color:var(--wp-text2);cursor:pointer;
+    white-space:nowrap;border-bottom:2px solid transparent}
+  #wafpro-app .wp-tab:hover{color:var(--wp-green)}
+  #wafpro-app .wp-tab.on{color:var(--wp-green);border-bottom-color:var(--wp-green);font-weight:600}
+
+  /* ---- scroll body ---- */
+  #wafpro-app .wp-body{flex:1;overflow-y:auto;overflow-x:hidden;padding:14px}
+
+  /* ---- grid + cards ---- */
+  #wafpro-app .wp-row{display:grid;gap:14px;margin-bottom:14px}
+  #wafpro-app .wp-card{background:var(--wp-card);border:1px solid var(--wp-border);border-radius:10px;padding:16px}
+  #wafpro-app .wp-card-h{display:flex;align-items:center;gap:8px;margin-bottom:14px}
+  #wafpro-app .wp-card-h .t{font-size:14px;font-weight:600;color:var(--wp-text)}
+  #wafpro-app .wp-card-h .r{margin-left:auto;display:flex;align-items:center;gap:8px}
+  #wafpro-app .wp-ico{width:16px;height:16px;stroke:var(--wp-text3);fill:none;stroke-width:1.7;flex:none}
+
+  /* ---- stat cards ---- */
+  #wafpro-app .wp-stat{position:relative;background:var(--wp-card);border:1px solid var(--wp-border);
+    border-radius:10px;padding:16px 18px;overflow:hidden}
+  #wafpro-app .wp-stat .lbl{display:flex;align-items:center;gap:7px;font-size:13px;color:var(--wp-text2);margin-bottom:10px}
+  #wafpro-app .wp-stat .bar{width:3px;height:13px;border-radius:2px;background:var(--wp-green)}
+  #wafpro-app .wp-stat .bar.red{background:var(--wp-red)}
+  #wafpro-app .wp-stat .val{font-size:26px;font-weight:700;line-height:1.1;margin-bottom:6px;
+    white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+  #wafpro-app .wp-stat .sub{font-size:12px;color:var(--wp-text3)}
+  #wafpro-app .wp-stat .pct{font-size:12px;margin-bottom:2px}
+  #wafpro-app .wp-stat .pct.up{color:var(--wp-red)}
+  #wafpro-app .wp-stat .pct.down{color:var(--wp-green)}
+  #wafpro-app .wp-stat svg.bg{position:absolute;right:10px;bottom:6px;width:56px;height:56px;
+    stroke:#eef0f2;fill:none;stroke-width:1.2}
+
+  /* ---- date switch ---- */
+  #wafpro-app .wp-seg{display:inline-flex;border:1px solid var(--wp-border);border-radius:6px;overflow:hidden}
+  #wafpro-app .wp-seg span{padding:6px 14px;font-size:13px;cursor:pointer;background:var(--wp-card);color:var(--wp-text2)}
+  #wafpro-app .wp-seg span.on{background:var(--wp-green);color:#fff}
+
+  /* ---- buttons ---- */
+  .wp-btn{display:inline-flex;align-items:center;gap:6px;padding:7px 14px;font-size:13px;
+    border:1px solid var(--wp-border);background:var(--wp-card);color:var(--wp-text2);
+    border-radius:6px;cursor:pointer;line-height:1}
+  .wp-btn:hover{border-color:var(--wp-green);color:var(--wp-green)}
+  .wp-btn.primary{background:var(--wp-green);border-color:var(--wp-green);color:#fff}
+  .wp-btn.primary:hover{background:var(--wp-green-d);color:#fff}
+
+  /* ---- switch ---- */
+  .wp-sw{position:relative;display:inline-block;width:44px;height:22px;vertical-align:middle;flex:none}
+  .wp-sw input{display:none}
+  .wp-sw .sl{position:absolute;inset:0;background:#ccd0d6;border-radius:22px;transition:background .15s}
+  .wp-sw .sl::before{content:'';position:absolute;width:18px;height:18px;left:2px;top:2px;
+    background:#fff;border-radius:50%;transition:left .15s}
+  .wp-sw input:checked + .sl{background:var(--wp-green)}
+  .wp-sw input:checked + .sl::before{left:24px}
+
+  /* ---- charts ---- */
+  #wafpro-app .wp-chart{width:100%;height:230px}
+  #wafpro-app .wp-chart.sm{height:150px}
+
+  /* ---- overview layout (mirrors the Pro dashboard) ---- */
+  #wafpro-app .wp-main-grid{grid-template-columns:390px minmax(0,1fr)}
+  @media (max-width:1180px){#wafpro-app .wp-main-grid{grid-template-columns:1fr}}
+  #wafpro-app .wp-col{display:flex;flex-direction:column;gap:14px;min-width:0}
+  #wafpro-app .wp-daterow{display:flex;align-items:center;gap:10px}
+  #wafpro-app .wp-count{width:30px;height:30px;border-radius:50%;border:1px solid var(--wp-green);
+    color:var(--wp-green);font-size:12px;font-weight:600;display:flex;align-items:center;justify-content:center;flex:none}
+  #wafpro-app .wp-ref{margin-left:auto;padding:6px 12px}
+  #wafpro-app .wp-stat-2{display:grid;grid-template-columns:1fr 1fr;gap:14px}
+  #wafpro-app .wp-map-wrap{display:grid;grid-template-columns:minmax(0,1fr) 300px;gap:12px}
+  @media (max-width:1400px){#wafpro-app .wp-map-wrap{grid-template-columns:1fr}}
+  #wafpro-app .wp-attack-side{border-left:1px solid var(--wp-border);padding-left:12px}
+  @media (max-width:1400px){#wafpro-app .wp-attack-side{border-left:none;padding-left:0;border-top:1px solid var(--wp-border);padding-top:10px}}
+  #wafpro-app .wp-legend{display:flex;align-items:center;gap:5px;font-size:11px;color:var(--wp-text3);padding-left:6px}
+  #wafpro-app .wp-legend i{width:26px;height:5px;border-radius:2px}
+  #wafpro-app .wp-legend .g1{background:#d8efdd}
+  #wafpro-app .wp-legend .g2{background:#7fd196}
+  #wafpro-app .wp-legend .g3{background:#20a53a}
+
+  /* ---- tables ---- */
+  .wp-tbl{width:100%;border-collapse:collapse;font-size:12px}
+  #wafpro-app .wp-tbl th{background:#fafbfc;color:var(--wp-text);font-weight:600;text-align:left;
+    padding:9px 10px;border-bottom:1px solid var(--wp-border);white-space:nowrap}
+  #wafpro-app .wp-tbl td{padding:9px 10px;border-bottom:1px solid #f4f5f6;color:var(--wp-text2);vertical-align:middle}
+  #wafpro-app .wp-tbl tr:last-child td{border-bottom:none}
+  #wafpro-app .wp-tbl tbody tr:hover td{background:#fafbfc}
+  #wafpro-app .wp-tbl .ell{max-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+  .wp-scroll{max-height:330px;overflow-y:auto}
+
+  /* ---- top10 bars ---- */
+  #wafpro-app .wp-rank{display:flex;align-items:center;gap:10px;padding:8px 0}
+  #wafpro-app .wp-rank .n{flex:none;width:20px;height:20px;border-radius:50%;background:#eef0f2;
+    color:var(--wp-text2);font-size:11px;display:flex;align-items:center;justify-content:center;font-weight:600}
+  #wafpro-app .wp-rank .n.top{background:var(--wp-green);color:#fff}
+  #wafpro-app .wp-rank .nm{flex:0 0 34%;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;color:var(--wp-text2)}
+  #wafpro-app .wp-rank .tr{flex:1;height:6px;background:#f0f2f4;border-radius:3px;overflow:hidden}
+  #wafpro-app .wp-rank .tr i{display:block;height:100%;background:var(--wp-green);border-radius:3px}
+  #wafpro-app .wp-rank .v{flex:none;color:var(--wp-text);font-weight:600;min-width:38px;text-align:right}
+
+  /* ---- chips ---- */
+  .wp-chip{display:inline-block;padding:2px 8px;border-radius:4px;font-size:11px;
+    background:#f0f2f4;color:var(--wp-text2)}
+  #wafpro-app .wp-chip.args{background:#fff2e8;color:#d4380d}
+  #wafpro-app .wp-chip.user_agent{background:#f0f5ff;color:#2f54eb}
+  #wafpro-app .wp-chip.post{background:#fff1f0;color:#cf1322}
+  #wafpro-app .wp-chip.cc{background:#fffbe6;color:#d48806}
+  #wafpro-app .wp-chip.url{background:#f6ffed;color:#389e0d}
+
+  /* ---- blockade sub-tabs + toolbar ---- */
+  #wafpro-app .wp-subtabs{display:flex;gap:4px;padding:0}
+  #wafpro-app .wp-subtab{padding:9px 18px;font-size:13px;cursor:pointer;color:var(--wp-text2);
+    background:#eef0f2;border:1px solid var(--wp-border);border-bottom:none;
+    border-radius:6px 6px 0 0;position:relative;top:1px}
+  #wafpro-app .wp-subtab:hover{color:var(--wp-green)}
+  #wafpro-app .wp-subtab.on{background:var(--wp-card);color:var(--wp-green);font-weight:600;
+    border-bottom:1px solid var(--wp-card)}
+  #wafpro-app .wp-bl-bar{display:flex;align-items:center;gap:8px;flex-wrap:wrap;margin-bottom:6px}
+  #wafpro-app .wp-search{position:relative}
+  #wafpro-app .wp-search .wp-in{width:290px;padding-right:28px}
+  #wafpro-app .wp-search-i{position:absolute;right:9px;top:6px;color:var(--wp-text3);font-size:13px;pointer-events:none}
+  #wafpro-app .wp-match{text-align:center;padding:14px 0 10px}
+  #wafpro-app .wp-match-n{font-size:17px;font-weight:700;color:var(--wp-text)}
+  #wafpro-app .wp-match-s{font-size:12px;color:var(--wp-text3);margin-top:3px}
+  #wafpro-app .wp-pager{display:flex;align-items:center;gap:6px;margin-top:14px;justify-content:flex-end}
+  #wafpro-app .wp-sub-t{font-size:13px;font-weight:600;color:var(--wp-text);margin-bottom:10px}
+  .wp-chip.red{background:#fff1f0;color:#cf1322}
+  /* keep the row actions on one line */
+  #wafpro-app td.wp-ops{white-space:nowrap}
+  #wafpro-app td.wp-ops .wp-lnk{display:inline-block}
+  #wafpro-app .wp-ops-sep{color:var(--wp-border);margin:0 5px}
+  #wafpro-app .wp-note-sm{background:#f7f9fb;border:1px solid var(--wp-border);border-radius:6px;
+    padding:9px 12px;color:var(--wp-text2);font-size:12px;line-height:1.7;margin-bottom:12px}
+
+  /* ---- black/white list form ---- */
+  #wafpro-app .wp-form-t{font-size:13px;font-weight:700;color:var(--wp-text);margin:4px 0 16px}
+  #wafpro-app .wp-form-row{display:flex;align-items:center;gap:14px;margin-bottom:12px}
+  #wafpro-app .wp-form-lbl{width:78px;text-align:right;color:var(--wp-text2);font-size:13px;flex:none}
+  #wafpro-app .wp-form-ctl{display:flex;align-items:center}
+  #wafpro-app .wp-f{width:300px}
+  #wafpro-app .wp-list-bar{display:flex;align-items:center;gap:8px;margin:20px 0 12px;
+    padding-top:16px;border-top:1px solid var(--wp-border)}
+  #wafpro-app .wp-notes{margin:18px 0 0 18px;color:var(--wp-text2);font-size:12px;line-height:2;list-style:disc}
+  #wafpro-app .wp-notes li{padding-left:2px}
+  #wafpro-app .wp-notes b{color:var(--wp-text)}
+  #wafpro-app .wp-notes code, .wp-modal code{background:#f2f3f5;border-radius:3px;padding:1px 5px;
+    font-family:ui-monospace,Menlo,Consolas,monospace;font-size:11px}
+
+  /* ---- website tab bits ---- */
+  .wp-q{display:inline-block;width:13px;height:13px;border:1px solid var(--wp-orange);
+    color:var(--wp-orange);border-radius:50%;font-size:9px;line-height:12px;text-align:center;cursor:help;font-weight:400}
+  .wp-lnk{color:var(--wp-green);cursor:pointer}
+  .wp-lnk:hover{text-decoration:underline}
+  .wp-dis{color:var(--wp-red)}
+  #wafpro-app input[type=checkbox], .wp-modal input[type=checkbox]{accent-color:var(--wp-green);width:14px;height:14px;cursor:pointer;vertical-align:-2px}
+  textarea.wp-in{height:auto;line-height:1.5;font-family:inherit}
+
+  /* ---- modal (rendered outside #wafpro-app, inside .layui-layer) ---- */
+  .wp-modal{display:flex;flex-direction:column;height:100%;
+    font-family:-apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,"Helvetica Neue",Arial,"Microsoft Yahei",sans-serif;
+    font-size:13px;color:var(--wp-text);background:var(--wp-card);-webkit-font-smoothing:antialiased}
+  .wp-modal *{box-sizing:border-box}
+  .wp-mod-head{flex:none;padding:16px 22px 12px;border-bottom:1px solid var(--wp-border)}
+  .wp-mod-site{font-size:15px;font-weight:600;color:var(--wp-text)}
+  .wp-mod-meta{font-size:12px;color:var(--wp-text3);margin-top:4px}
+  .wp-mod-body{flex:1;overflow-y:auto;padding:6px 22px 12px}
+  .wp-mod-foot{flex:none;display:flex;justify-content:flex-end;gap:10px;
+    padding:12px 22px;border-top:1px solid var(--wp-border);background:#fafbfc}
+  .wp-mod-sec{padding:14px 0;border-bottom:1px solid #f2f3f5}
+  .wp-mod-sec:last-child{border-bottom:none}
+  .wp-mod-sec-t{font-size:12px;font-weight:700;color:var(--wp-text3);
+    text-transform:uppercase;letter-spacing:.4px;margin-bottom:10px}
+  .wp-mod-row{display:grid;grid-template-columns:150px auto 1fr;align-items:center;gap:12px;padding:7px 0}
+  .wp-mod-lbl{color:var(--wp-text2);font-size:13px}
+  .wp-mod-ctl{display:flex;align-items:center;gap:6px;flex-wrap:wrap}
+  .wp-mod-hint{color:var(--wp-text3);font-size:12px;line-height:1.5}
+  .wp-modal .wp-in{height:30px}
+  .wp-modal .wp-in[type=number]{width:74px}
+  .wp-modal .wp-ta{width:100%;height:64px;font-family:ui-monospace,Menlo,Consolas,monospace;font-size:12px}
+  .wp-modal .wp-wide{width:100%}
+  .wp-unit{color:var(--wp-text3);font-size:12px}
+  /* textarea/wide rows span the hint column instead (no :has() — older browsers) */
+  .wp-mod-row.wide{grid-template-columns:150px 1fr;align-items:start}
+  .wp-mod-row.wide .wp-mod-ctl{display:block}
+  .wp-mod-row.wide .wp-mod-hint{grid-column:2;margin-top:4px}
+
+  /* ---- Global: section header + feature card (one setting per row) ---- */
+  .wp-gsec{font-size:13px;font-weight:600;color:var(--wp-text2);margin:22px 0 2px;padding-left:2px}
+  .wp-gsec:first-of-type{margin-top:8px}
+  .wp-fc{background:var(--wp-card);border:1px solid var(--wp-border);border-radius:10px;
+    padding:18px 22px;margin-top:12px;display:flex;align-items:center;gap:20px}
+  .wp-fc.hero{background:var(--wp-green-s);border-color:#cce8d3}
+  .wp-fc-l{flex:1;min-width:0}
+  .wp-fc-t{font-weight:600;font-size:14px;color:var(--wp-text)}
+  .wp-fc-d{color:var(--wp-text2);font-size:12px;margin-top:4px;line-height:1.5}
+  .wp-fc-r{flex:none;display:flex;align-items:center;gap:10px}
+  .wp-fc-col{display:block}
+  .wp-fc-col .wp-fc-body{margin-top:14px;border-top:1px solid var(--wp-border);padding-top:14px}
+
+  /* ---- segmented control (Intercept / Pass) ---- */
+  .wp-seg{display:grid;grid-template-columns:1fr 1fr;gap:8px}
+  .wp-seg label{display:block;border:1px solid var(--wp-border);border-radius:8px;
+    padding:10px 12px;cursor:pointer;transition:border-color .12s,background .12s}
+  .wp-seg label:hover{border-color:#c9cdd4}
+  .wp-seg input{display:none}
+  .wp-seg .t{display:flex;align-items:center;gap:7px;font-weight:600;font-size:13px;color:var(--wp-text)}
+  .wp-seg .d{font-size:12px;color:var(--wp-text3);margin-top:3px;line-height:1.45}
+  .wp-seg .dot{width:14px;height:14px;border-radius:50%;border:1.5px solid #c9cdd4;flex:none;position:relative}
+  .wp-seg input:checked + .t .dot{border-color:var(--wp-green)}
+  .wp-seg input:checked + .t .dot::after{content:'';position:absolute;inset:3px;
+    border-radius:50%;background:var(--wp-green)}
+  .wp-seg label.on{border-color:var(--wp-green);background:var(--wp-green-s)}
+
+  /* ---- area picker ---- */
+  .wp-pick{border:1px solid var(--wp-border);border-radius:8px;overflow:hidden}
+  .wp-pick-bar{display:flex;align-items:center;gap:8px;padding:8px 10px;
+    border-bottom:1px solid var(--wp-border);background:#fafbfc}
+  .wp-pick-bar .wp-in{flex:1;height:30px}
+  .wp-pick-list{height:224px;overflow-y:auto;padding:4px}
+  .wp-ctry{display:flex;align-items:center;gap:9px;padding:6px 8px;border-radius:6px;cursor:pointer}
+  .wp-ctry:hover{background:var(--wp-bg)}
+  .wp-ctry .n{flex:1;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+  .wp-ctry .c{color:var(--wp-text3);font-size:12px}
+  .wp-ctry .k{color:var(--wp-text3);font-size:12px;font-variant-numeric:tabular-nums;flex:none}
+  .wp-ctry.on{background:var(--wp-green-s)}
+  .wp-chips{display:flex;flex-wrap:wrap;gap:6px;padding:8px 10px;border-top:1px solid var(--wp-border);
+    background:#fafbfc;max-height:74px;overflow-y:auto}
+  .wp-chip2{display:inline-flex;align-items:center;gap:5px;background:var(--wp-card);
+    border:1px solid var(--wp-border);border-radius:20px;padding:2px 6px 2px 9px;font-size:12px}
+  .wp-chip2 b{font-weight:600}
+  .wp-chip2 i{font-style:normal;color:var(--wp-text3);cursor:pointer;padding:0 3px;line-height:1}
+  .wp-chip2 i:hover{color:var(--wp-red)}
+  .wp-link{color:var(--wp-green);cursor:pointer;font-size:12px;white-space:nowrap}
+  .wp-link:hover{text-decoration:underline}
+  .wp-cost{font-size:12px;color:var(--wp-text3)}
+  .wp-cost b{color:var(--wp-text);font-variant-numeric:tabular-nums}
+  .wp-cost.warn{color:#8a6d3b}
+  .wp-cost.warn b{color:#8a6d3b}
+
+  /* ---- misc ---- */
+  .wp-empty{padding:40px 0;text-align:center;color:var(--wp-text3)}
+  #wafpro-app .wp-loading{padding:40px 0;text-align:center;color:var(--wp-text3)}
+  #wafpro-app .wp-note{background:#fffbe6;border:1px solid #ffe58f;color:#8a6d3b;
+    padding:10px 14px;border-radius:8px;margin-bottom:14px;font-size:13px}
+  .wp-in{border:1px solid var(--wp-border);border-radius:6px;padding:6px 10px;font-size:13px;
+    color:var(--wp-text);outline:none;height:32px}
+  .wp-in:focus{border-color:var(--wp-green)}
+  select.wp-in{height:32px}
+  </style>
+
+  <div class="wp-tabs" id="wp-tabs"></div>
+  <div class="wp-body" id="wp-body"><div class="wp-loading">Loading...</div></div>
+</div>
+
+<script type="text/javascript">
+(function () {
+  var API = '/plugin?action=a&name=wafpro&s=';
+  var S = { tab: 'overview', charts: {}, timer: null, range: 'today' };
+
+  function post(m, d, cb) {
+    $.post(API + m, d || {}, function (r) { cb(r); }, 'json')
+      .fail(function (x) { layer.msg('Request failed: ' + x.status, { icon: 2 }); });
+  }
+  function esc(s) {
+    return String(s == null ? '' : s).replace(/[&<>"]/g, function (c) {
+      return { '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[c];
+    });
+  }
+  function num(n) { return (n || 0).toString().replace(/\B(?=(\d{3})+(?!\d))/g, ','); }
+  function mb(b) {
+    b = b || 0;
+    if (b > 1073741824) return (b / 1073741824).toFixed(2) + ' GB';
+    if (b > 1048576) return (b / 1048576).toFixed(2) + ' MB';
+    if (b > 1024) return (b / 1024).toFixed(1) + ' KB';
+    return b + ' B';
+  }
+
+  /* ---------- fit into the panel dialog ---------- */
+  function fit() {
+    var app = document.getElementById('wafpro-app');
+    if (!app) return;
+    var n = app.parentElement, box = null;
+    while (n && n !== document.body) {
+      if (n.clientHeight && n.clientHeight > 150) { box = n; break; }
+      n = n.parentElement;
+    }
+    var h = box ? box.clientHeight - Math.max(app.getBoundingClientRect().top - box.getBoundingClientRect().top, 0)
+                : Math.max(window.innerHeight - 120, 480);
+    app.style.height = Math.max(h, 420) + 'px';
+    if (app.parentElement) app.parentElement.style.overflow = 'hidden';
+    resizeCharts();
+  }
+  function widen() {
+    var app = document.getElementById('wafpro-app');
+    if (!app) return;
+    var vw = window.innerWidth, vh = window.innerHeight;
+    var W = Math.min(1500, vw - 40), H = Math.min(900, vh - 40);
+    var el = app.parentElement, prev = app, target = null, narrow = null, nw = 1e9;
+    while (el && el !== document.body && el !== document.documentElement) {
+      var cs = getComputedStyle(el);
+      if (cs.position === 'fixed' && el.clientWidth >= vw * 0.95 && el.clientHeight >= vh * 0.9) { target = prev; break; }
+      if (el.clientWidth >= 300 && el.clientWidth < nw) { nw = el.clientWidth; narrow = el; }
+      prev = el; el = el.parentElement;
+    }
+    if (!target) target = narrow;
+    if (target && target !== app) {
+      var st = target.style;
+      st.setProperty('width', W + 'px', 'important');
+      st.setProperty('max-width', 'none', 'important');
+      st.setProperty('height', H + 'px', 'important');
+      st.setProperty('max-height', 'none', 'important');
+      var tcs = getComputedStyle(target);
+      if (tcs.position === 'fixed' || tcs.position === 'absolute') {
+        st.setProperty('left', Math.max((vw - W) / 2, 10) + 'px', 'important');
+        st.setProperty('top', Math.max((vh - H) / 2, 10) + 'px', 'important');
+        st.setProperty('right', 'auto', 'important'); st.setProperty('bottom', 'auto', 'important');
+        st.setProperty('margin', '0', 'important'); st.setProperty('transform', 'none', 'important');
+      }
+      var mid = app.parentElement;
+      while (mid && mid !== target) {
+        mid.style.setProperty('width', '100%', 'important');
+        mid.style.setProperty('max-width', 'none', 'important');
+        mid = mid.parentElement;
+      }
+    }
+    fit();
+  }
+  function resizeCharts() {
+    Object.keys(S.charts).forEach(function (k) { try { S.charts[k].resize(); } catch (e) {} });
+  }
+
+  /* ---------- echarts ---------- */
+  function ec(id, opt) {
+    var el = document.getElementById(id);
+    if (!el || typeof echarts === 'undefined') return null;
+    if (S.charts[id]) { try { S.charts[id].dispose(); } catch (e) {} }
+    var c = echarts.init(el);
+    c.setOption(opt);
+    S.charts[id] = c;
+    return c;
+  }
+  function ensureEcharts(cb) {
+    if (typeof echarts !== 'undefined') return cb();
+    $.getScript('/static/js/echarts.min.js').done(cb).fail(function () {
+      layer.msg('ECharts yüklenemedi', { icon: 2 }); cb();
+    });
+  }
+
+  /* ---------- tabs ---------- */
+  var TABS = [
+    { id: 'overview', t: 'Overview' },
+    { id: 'website', t: 'WebSite' },
+    { id: 'blockade', t: 'Blockade' },
+    { id: 'lists', t: 'Black/White list' },
+    { id: 'rules', t: 'Custom rules' },
+    { id: 'region', t: 'Region' },
+    { id: 'traffic', t: 'Traffic Limit' },
+    { id: 'global', t: 'Global' }
+  ];
+  function renderTabs() {
+    $('#wp-tabs').html(TABS.map(function (x) {
+      return '<div class="wp-tab' + (x.id === S.tab ? ' on' : '') + '" data-t="' + x.id + '">' + x.t + '</div>';
+    }).join(''));
+  }
+  $('#wp-tabs').on('click', '.wp-tab', function () {
+    var t = $(this).data('t');
+    if (t === S.tab) return;
+    S.tab = t; renderTabs(); route();
+  });
+
+  function route() {
+    if (S.timer) { clearInterval(S.timer); S.timer = null; }
+    Object.keys(S.charts).forEach(function (k) { try { S.charts[k].dispose(); } catch (e) {} });
+    S.charts = {};
+    $('#wp-body').scrollTop(0);
+    if (S.tab === 'overview') return pageOverview();
+    if (S.tab === 'website') return pageWebsite();
+    if (S.tab === 'blockade') return pageBlockade();
+    if (S.tab === 'lists') return pageLists();
+    if (S.tab === 'rules') return pageRules();
+    if (S.tab === 'region') return pageRegion();
+    if (S.tab === 'traffic') return pageTraffic();
+    if (S.tab === 'global') return pageGlobal();
+  }
+
+  /* ================= BLOCKADE (3 sub-tabs, like the Pro UI) ================= */
+  var BL_SUBS = [
+    { id: 'intercept', t: 'Interception record' },
+    { id: 'ipblock', t: 'IP blocking record' },
+    { id: 'rulehit', t: 'Rule hit record' }
+  ];
+  function pageBlockade() {
+    S.blSub = S.blSub || 'intercept';
+    var h = '<div class="wp-subtabs">' + BL_SUBS.map(function (x) {
+      return '<span class="wp-subtab' + (x.id === S.blSub ? ' on' : '') + '" data-s="' + x.id + '">' + x.t + '</span>';
+    }).join('') + '</div>';
+    h += '<div class="wp-card" style="border-top-left-radius:0"><div id="wp-bl-body"><div class="wp-loading">Loading...</div></div></div>';
+    $('#wp-body').html(h);
+    $('.wp-subtab').on('click', function () {
+      S.blSub = $(this).data('s');
+      $('.wp-subtab').removeClass('on'); $(this).addClass('on');
+      routeBlockade();
+    });
+    routeBlockade();
+  }
+  function routeBlockade() {
+    if (S.blSub === 'intercept') return blIntercept();
+    if (S.blSub === 'ipblock') return blIpBlock();
+    if (S.blSub === 'rulehit') return blRuleHit();
+  }
+
+  /* ---- Blockade > Interception record ---- */
+  function blIntercept() {
+    S.blDate = S.blDate || 'all';
+    var h = '<div class="wp-bl-bar">' +
+      '<div class="wp-search"><input class="wp-in" id="wp-bl-q" placeholder="Domain name/IP/URL/User-Agent/Region" value="' + esc(S.blQ || '') + '">' +
+      '<span class="wp-search-i">&#9906;</span></div>' +
+      '<span class="wp-btn primary" id="wp-bl-search">Search</span>' +
+      '<span class="wp-btn" id="wp-bl-export">Export</span>' +
+      '<span class="wp-btn" id="wp-bl-clear">Clear log</span>' +
+      '<div class="wp-seg" id="wp-bl-date" style="margin-left:auto">' +
+      ['all', 'today', 'yesterday'].map(function (d) {
+        return '<span class="' + (S.blDate === d ? 'on' : '') + '" data-d="' + d + '">' +
+          (d === 'all' ? 'All' : d === 'today' ? 'Today' : 'Yesterday') + '</span>';
+      }).join('') + '</div>' +
+      '<select class="wp-in" id="wp-bl-day" style="width:150px"><option value="">Select Date</option></select>' +
+      '</div>';
+    h += '<div id="wp-bl-result"><div class="wp-loading">Loading...</div></div>';
+    $('#wp-bl-body').html(h);
+
+    post('get_log_dates', {}, function (r) {
+      $('#wp-bl-day').append((r.dates || []).map(function (d) {
+        return '<option value="' + esc(d) + '"' + (S.blDate === d ? ' selected' : '') + '>' + esc(d) + '</option>';
+      }).join(''));
+    });
+    $('#wp-bl-search').on('click', function () { S.blQ = $('#wp-bl-q').val() || ''; loadIntercept(1); });
+    $('#wp-bl-q').on('keydown', function (e) { if (e.keyCode === 13) { S.blQ = $(this).val() || ''; loadIntercept(1); } });
+    $('#wp-bl-date span').on('click', function () {
+      S.blDate = $(this).data('d');
+      $('#wp-bl-date span').removeClass('on'); $(this).addClass('on');
+      $('#wp-bl-day').val('');
+      loadIntercept(1);
+    });
+    $('#wp-bl-day').on('change', function () {
+      var v = $(this).val();
+      if (v) { S.blDate = v; $('#wp-bl-date span').removeClass('on'); loadIntercept(1); }
+    });
+    $('#wp-bl-export').on('click', function () {
+      post('export_logs', { date: S.blDate, q: S.blQ || '' }, function (rr) {
+        if (!rr.status) { layer.msg(rr.msg || 'Export failed', { icon: 2 }); return; }
+        layer.msg(rr.rows + ' rows exported', { icon: 1 });
+        window.open(API + 'download_export&filename=' + encodeURIComponent(rr.filename));
+      });
+    });
+    $('#wp-bl-clear').on('click', function () {
+      layer.confirm('Delete the intercept log files for the current date filter?<br>This cannot be undone.',
+        { icon: 3, title: 'Clear log' }, function (i) {
+          layer.close(i);
+          post('clear_logs', { date: S.blDate }, function (rr) {
+            layer.msg(rr.msg, { icon: rr.status ? 1 : 2 }); loadIntercept(1);
+          });
+        });
+    });
+    loadIntercept(1);
+  }
+
+  function loadIntercept(p) {
+    $('#wp-bl-result').html('<div class="wp-loading">Loading...</div>');
+    post('get_logs', { date: S.blDate, q: S.blQ || '', p: p, size: 10 }, function (r) {
+      if (!r.status) { $('#wp-bl-result').html('<div class="wp-empty">' + esc(r.msg || 'error') + '</div>'); return; }
+      S.blRows = r.data || [];
+      var h = '<div class="wp-match"><div class="wp-match-n">Match result: ' + num(r.total) + '</div>' +
+        '<div class="wp-match-s">Query time: ' + (S.blDate === 'all' ? 'All' : S.blDate) +
+        (S.blQ ? ' · keyword: ' + esc(S.blQ) : '') + '</div></div>';
+      h += '<table class="wp-tbl"><thead><tr>' +
+        '<th style="width:140px">Start time</th><th style="width:120px">User IP</th>' +
+        '<th style="width:130px">Domain name</th><th style="width:56px">Type</th>' +
+        '<th>URL address</th><th style="width:86px">Status</th>' +
+        '<th style="width:130px">IP location</th><th style="width:130px">Filter</th>' +
+        '<th style="width:150px">Operate</th></tr></thead><tbody>';
+      h += S.blRows.length ? S.blRows.map(function (x, i) {
+        return '<tr><td>' + x.time + '</td><td>' + x.ip + '</td>' +
+          '<td class="ell" title="' + x.site + '">' + x.site + '</td>' +
+          '<td>' + x.method + '</td>' +
+          '<td class="ell" title="' + x.url + '">' + x.url + '</td>' +
+          '<td><span class="wp-chip red">Intercepted</span></td>' +
+          '<td class="ell" title="' + x.location + '">' + x.location + '</td>' +
+          '<td class="ell" title="' + x.filter_name + '">' + x.filter_name + '</td>' +
+          '<td class="wp-ops"><span class="wp-lnk bl-ip" data-i="' + i + '">Block IP</span>' +
+          '<span class="wp-ops-sep">|</span><span class="wp-lnk bl-url" data-i="' + i + '">White URL</span>' +
+          '<span class="wp-ops-sep">|</span><span class="wp-lnk bl-det" data-i="' + i + '">Details</span></td></tr>';
+      }).join('') : '<tr><td colspan="9" class="wp-empty">No records match the filter</td></tr>';
+      h += '</tbody></table>';
+      h += pager(r.p, r.pages, r.total, 'wp-bl-pg');
+      $('#wp-bl-result').html(h);
+
+      bindPager('wp-bl-pg', r.pages, loadIntercept);
+      $('.bl-ip').on('click', function () {
+        var x = S.blRows[$(this).data('i')];
+        layer.confirm('Add <b>' + x.ip + '</b> to the IP blacklist?<br>' +
+          '<span style="color:#9aa1ab;font-size:12px">It will appear under <b>Black/White list › IP blacklist</b> ' +
+          'and every request from it is dropped from now on.</span>',
+          { icon: 3, title: 'Block IP' }, function (i2) {
+            layer.close(i2);
+            post('list_add', { list_name: 'ip_black', value: x.ip }, function (rr) {
+              // report what actually happened — never assume success
+              layer.msg((rr && rr.msg) || 'No response', { icon: (rr && rr.status) ? 1 : 2 });
+            });
+          });
+      });
+      $('.bl-url').on('click', function () {
+        var x = S.blRows[$(this).data('i')];
+        var u = ($('<div>').html(x.url).text() || '').split('?')[0];
+        layer.confirm('Add <b>' + esc(u) + '</b> to the URL whitelist?<br>' +
+          '<span style="color:#9aa1ab;font-size:12px">Requests to it will skip filtering — check it is not attacker-controlled.</span>',
+          { icon: 3, title: 'White URL' }, function (i2) {
+            layer.close(i2);
+            post('list_add', { list_name: 'url_white', value: u }, function (rr) {
+              layer.msg((rr && rr.msg) || 'No response', { icon: (rr && rr.status) ? 1 : 2 });
+            });
+          });
+      });
+      $('.bl-det').on('click', function () {
+        var x = S.blRows[$(this).data('i')];
+        layer.open({
+          type: 1, title: 'Intercept detail', area: ['640px', '400px'],
+          content: '<div class="wp-modal" style="padding:18px 22px;overflow:auto;line-height:2;word-break:break-all">' +
+            detRow('Start time', x.time) + detRow('User IP', x.ip) + detRow('IP location', x.location) +
+            detRow('Domain name', x.site) + detRow('Type', x.method) + detRow('URL address', x.url) +
+            detRow('Status', 'Intercepted') + detRow('Filter', x.filter_name) +
+            detRow('Rule', '<code style="font-size:12px">' + x.rule + '</code>') +
+            detRow('User-Agent', x.ua) + '</div>'
+        });
+      });
+    });
+  }
+  function detRow(k, v) {
+    return '<div style="display:flex;gap:10px;padding:3px 0">' +
+      '<div style="width:110px;color:#9aa1ab;flex:none;text-align:right">' + k + '</div>' +
+      '<div style="color:#1f2329">' + (v || '-') + '</div></div>';
+  }
+
+  /* ---- shared pager ---- */
+  function pager(cur, pages, total, id) {
+    var h = '<div class="wp-pager" id="' + id + '">';
+    h += '<span class="wp-btn pg" data-p="prev">&#8249;</span>';
+    var list = [];
+    for (var i = 1; i <= pages; i++) {
+      if (i <= 2 || i > pages - 2 || Math.abs(i - cur) <= 2) list.push(i);
+      else if (list[list.length - 1] !== '...') list.push('...');
+    }
+    list.forEach(function (i) {
+      h += (i === '...') ? '<span style="color:var(--wp-text3);padding:0 4px">…</span>'
+        : '<span class="wp-btn pg' + (i === cur ? ' primary' : '') + '" data-p="' + i + '" style="min-width:32px;justify-content:center">' + i + '</span>';
+    });
+    h += '<span class="wp-btn pg" data-p="next">&#8250;</span>';
+    h += '<span style="color:var(--wp-text2);margin-left:6px">Total ' + num(total) + '</span></div>';
+    return h;
+  }
+  function bindPager(id, pages, fn) {
+    $('#' + id + ' .pg').on('click', function () {
+      var p = $(this).data('p');
+      var cur = parseInt($('#' + id + ' .primary').data('p'), 10) || 1;
+      if (p === 'prev') p = Math.max(cur - 1, 1);
+      else if (p === 'next') p = Math.min(cur + 1, pages);
+      fn(parseInt(p, 10));
+    });
+  }
+
+  /* ---- Blockade > Rule hit record ---- */
+  function blRuleHit() {
+    $('#wp-bl-body').html('<div class="wp-loading">Loading...</div>');
+    post('rule_hits', {}, function (r) {
+      if (!r.status) { $('#wp-bl-body').html('<div class="wp-empty">error</div>'); return; }
+      var h = '<div style="display:grid;grid-template-columns:1fr 1fr;gap:20px">';
+      h += '<div><div class="wp-sub-t">Hits by filter (all time: ' + num(r.total) + ')</div>' +
+        '<table class="wp-tbl"><thead><tr><th>Filter</th><th style="width:90px">Hits</th></tr></thead><tbody>' +
+        (r.rules.length ? r.rules.map(function (x) {
+          return '<tr><td>' + esc(x.name) + '</td><td style="color:' + (x.count ? 'var(--wp-red)' : 'var(--wp-text3)') +
+            ';font-weight:600">' + num(x.count) + '</td></tr>';
+        }).join('') : '<tr><td colspan="2" class="wp-empty">No data</td></tr>') + '</tbody></table></div>';
+      h += '<div><div class="wp-sub-t">Hits by site</div>' +
+        '<table class="wp-tbl"><thead><tr><th>Site</th><th>Filter</th><th style="width:80px">Hits</th></tr></thead><tbody>' +
+        (r.per_site.length ? r.per_site.map(function (x) {
+          return '<tr><td class="ell">' + esc(x.site) + '</td><td>' + esc(x.name) + '</td>' +
+            '<td style="color:var(--wp-red);font-weight:600">' + num(x.count) + '</td></tr>';
+        }).join('') : '<tr><td colspan="3" class="wp-empty">No data</td></tr>') + '</tbody></table></div>';
+      h += '</div>';
+      $('#wp-bl-body').html(h);
+    });
+  }
+
+  /* ---- Blockade > IP blocking record ---- */
+  function blIpBlock() {
+    $('#wp-bl-body').html('<div class="wp-loading">Loading...</div>');
+    post('bans', {}, function (r) {
+      if (!r.status) { $('#wp-bl-body').html('<div class="wp-note">' + esc(r.msg || 'error') + '</div>'); return; }
+      var ips = r.data || [];
+      var h = '<div class="wp-note-sm">These are <b>temporary</b> blocks the engine applies by itself: an IP lands here ' +
+        'after tripping <b>' + r.retry + '</b> rules within <b>' + r.retry_cycle + 's</b>, or by exceeding ' +
+        '<b>CC defense</b>, and leaves on its own when the time runs out.<br>' +
+        'IPs you block by hand live in <b>Black/White list › IP blacklist</b> and stay until you remove them.</div>';
+      h += '<div style="display:flex;align-items:center;margin-bottom:12px">' +
+        '<div class="wp-sub-t" style="margin:0">Currently blocked IPs (' + ips.length + ')</div>' +
+        '<span class="wp-lnk" id="wp-goto-black" style="margin-left:12px">Go to IP blacklist &#8250;</span>' +
+        (ips.length ? '<span class="wp-btn" id="wp-clean-drop" style="margin-left:auto">Unblock all</span>' : '') +
+        '</div>';
+      h += '<table class="wp-tbl"><thead><tr><th style="width:150px">IP</th><th style="width:190px">IP location</th>' +
+        '<th style="width:150px">Tripped</th><th style="width:110px">Expires in</th>' +
+        '<th>Site</th><th style="width:90px">Operate</th></tr></thead><tbody>';
+      h += ips.length ? ips.map(function (x) {
+        return '<tr><td style="color:var(--wp-text);font-weight:600">' + esc(x.ip) + '</td>' +
+          '<td class="wp-geo" data-ip="' + esc(x.ip) + '">-</td>' +
+          '<td>' + esc(x.rule) + ' <span style="color:var(--wp-text3)">&times;' + x.hits + '</span></td>' +
+          '<td class="wp-left" data-until="' + x.until + '">' + fmtLeft(x.left) + '</td>' +
+          '<td>' + esc(x.site) + '</td>' +
+          '<td><span class="wp-lnk wp-unban" data-ip="' + esc(x.ip) + '">Unblock</span></td></tr>';
+      }).join('') : '<tr><td colspan="6" class="wp-empty">No IP is currently blocked.</td></tr>';
+      h += '</tbody></table>';
+      $('#wp-bl-body').html(h);
+      resolveGeo();
+
+      // tick the countdown locally instead of re-polling the whole table
+      if (S.timer) clearInterval(S.timer);
+      if (ips.length) {
+        S.timer = setInterval(function () {
+          var live = 0;
+          $('.wp-left').each(function () {
+            var left = $(this).data('until') - Math.floor(Date.now() / 1000);
+            if (left > 0) { live++; $(this).text(fmtLeft(left)); }
+            else $(this).text('expired');
+          });
+          if (!live) { clearInterval(S.timer); S.timer = null; blIpBlock(); }
+        }, 1000);
+      }
+
+      $('#wp-goto-black').on('click', function () {
+        S.listKey = 'ip_black'; S.tab = 'lists'; renderTabs(); route();
+      });
+      $('.wp-unban').on('click', function () {
+        var ip = $(this).data('ip');
+        post('unban', { ip: ip }, function (rr) {
+          layer.msg(rr.msg, { icon: rr.status ? 1 : 2 });
+          if (rr.status) setTimeout(blIpBlock, 400);
+        });
+      });
+      $('#wp-clean-drop').on('click', function () {
+        layer.confirm('Unblock every currently blocked IP?', { icon: 3, title: 'Clear blocklist' }, function (i) {
+          layer.close(i);
+          post('unban_all', {}, function (rr) {
+            layer.msg(rr.msg, { icon: rr.status ? 1 : 2 });
+            setTimeout(blIpBlock, 400);
+          });
+        });
+      });
+    });
+  }
+  function fmtLeft(s) {
+    if (s <= 0) return 'expired';
+    if (s < 60) return s + 's';
+    if (s < 3600) return Math.floor(s / 60) + 'm ' + (s % 60) + 's';
+    return Math.floor(s / 3600) + 'h ' + Math.floor((s % 3600) / 60) + 'm';
+  }
+  function resolveGeo() {
+    var ips = [];
+    $('.wp-geo').each(function () { ips.push($(this).data('ip')); });
+    if (!ips.length) return;
+    post('geo_batch', { ips: JSON.stringify(ips) }, function (r) {
+      if (!r.status) return;
+      $('.wp-geo').each(function () {
+        var g = r.data[$(this).data('ip')];
+        $(this).text(g && g.country ? (g.country + (g.city ? ' / ' + g.city : '')) : 'Unknown');
+      });
+    });
+  }
+
+  /* ================= BLACK / WHITE LISTS ================= */
+  var LIST_DEFS = [
+    { key: 'ip_white', t: 'IP whitelist', kind: 'ip',
+      head: 'Add the following IP addresses to the whitelist',
+      notes: [
+        'All rules are skipped for IPs in the whitelist, including IP blacklist and URL blacklist — the IP whitelist has the highest priority.',
+        'Add one IP: enter <b>192.168.10.6</b> in Start IP and leave End IP empty.',
+        'Add a range: Start IP <b>192.168.100.6</b>, End IP <b>192.168.100.100</b> — or type <b>192.168.100.6-100</b> in Start IP.',
+        'Add a segment: <b>192.168.1.0/24</b> becomes 192.168.1.1 – 192.168.1.254.',
+        'Add a segment: <b>172.16.10.1/16</b> becomes 172.16.0.1 – 172.16.255.254.'
+      ] },
+    { key: 'ip_black', t: 'IP blacklist', kind: 'ip',
+      head: 'Add the following IP addresses to the blacklist',
+      notes: [
+        'Every request from these IPs is dropped immediately.',
+        'The IP whitelist wins: an IP present in both lists is allowed.',
+        'Single IP, range (<b>192.168.100.6-100</b>) and CIDR (<b>192.168.1.0/24</b>) are all accepted.'
+      ] },
+    { key: 'user_agent', t: 'UA blacklist', kind: 'ua',
+      head: 'Block requests whose User-Agent matches',
+      ph: 'sqlmap|nikto|masscan',
+      notes: [
+        'Entries are <b>regular expressions</b> matched against the User-Agent header.',
+        'These are the same rules shown under <b>Custom rules › User-Agent rules</b>.',
+        'The engine has no UA <i>whitelist</i>, so only a blacklist is offered here.'
+      ] },
+    { key: 'url_white', t: 'URL whitelist', kind: 'url',
+      head: 'Add the following URLs to the whitelist',
+      ph: '/api/callback',
+      notes: [
+        'These URLs skip filtering entirely — only add paths you control.',
+        'Matching is by URL rule, e.g. <b>/api/callback</b>.'
+      ] },
+    { key: 'url_black', t: 'URL blacklist', kind: 'url',
+      head: 'Add the following URLs to the blacklist',
+      ph: '/admin.php',
+      notes: [
+        'Requests to these URLs are blocked for everyone.',
+        'The IP whitelist still wins over this list.'
+      ] }
+  ];
+  function listDef() { return LIST_DEFS.filter(function (x) { return x.key === S.listKey; })[0]; }
+
+  function pageLists() {
+    S.listKey = S.listKey || 'ip_white';
+    var h = '<div class="wp-subtabs">' + LIST_DEFS.map(function (x) {
+      return '<span class="wp-subtab' + (x.key === S.listKey ? ' on' : '') + '" data-k="' + x.key + '">' + x.t + '</span>';
+    }).join('') + '</div>';
+    h += '<div class="wp-card" style="border-top-left-radius:0"><div id="wp-list-body"><div class="wp-loading">Loading...</div></div></div>';
+    $('#wp-body').html(h);
+    $('.wp-subtab').on('click', function () {
+      S.listKey = $(this).data('k');
+      S.listQ = ''; S.listPage = 1;
+      $('.wp-subtab').removeClass('on'); $(this).addClass('on');
+      loadList();
+    });
+    loadList();
+  }
+  function loadList() {
+    var def = listDef();
+    $('#wp-list-body').html('<div class="wp-loading">Loading...</div>');
+    post('list_get', { list_name: def.key }, function (r) {
+      if (!r.status) { $('#wp-list-body').html('<div class="wp-empty">' + esc(r.msg || 'error') + '</div>'); return; }
+      // backend returns {value,type,remark,index}; the table renders x.display
+      S.listRows = (r.data || []).map(function (x) {
+        return { display: x.value != null ? x.value : (x.ip || ''), type: x.type,
+                 remark: x.remark, index: x.index };
+      });
+      S.listPage = S.listPage || 1; S.listSize = S.listSize || 10;
+
+      /* ---- add form ---- */
+      var h = '<div class="wp-form-t">' + def.head + '</div>';
+      if (def.kind === 'ip') {
+        h += formRow('Type', '<div class="wp-seg" id="wp-ip-type"><span class="on" data-v="ipv4">IPv4</span>' +
+          '<span data-v="ipv6" title="The WAF engine only supports IPv4 addresses">IPv6</span></div>' +
+          '<span id="wp-ip6-note" style="display:none;color:var(--wp-orange);font-size:12px;margin-left:10px">' +
+          'The engine stores IPv4 only — IPv6 entries cannot be added.</span>');
+        h += formRow('Start IP', '<input class="wp-in wp-f" id="wp-l-start" placeholder="Please enter start IP address, e.g.: 192.168.1.1">');
+        h += formRow('End IP', '<input class="wp-in wp-f" id="wp-l-end" placeholder="Please enter end IP address, e.g.: 192.168.1.24">');
+      } else {
+        h += formRow(def.kind === 'ua' ? 'User-Agent' : 'URL',
+          '<input class="wp-in wp-f" id="wp-l-start" placeholder="' + (def.ph || '') + '">');
+      }
+      h += formRow('Remarks', '<input class="wp-in wp-f" id="wp-l-remark" placeholder="Please enter remarks">');
+      h += formRow('', '<span class="wp-btn primary" id="wp-list-add">Add</span>');
+
+      /* ---- toolbar ---- */
+      h += '<div class="wp-list-bar">' +
+        '<span class="wp-btn" id="wp-l-import">Import</span>' +
+        '<span class="wp-btn" id="wp-l-export">Export</span>' +
+        (def.kind === 'ua' ? '' : '<span class="wp-btn" id="wp-l-empty">Empty</span>') +
+        '<div class="wp-search" style="margin-left:auto">' +
+        '<input class="wp-in" id="wp-l-q" placeholder="Please enter IP/remarks" value="' + esc(S.listQ || '') + '">' +
+        '<span class="wp-search-i">&#9906;</span></div></div>';
+      h += '<div id="wp-list-table"></div>';
+
+      /* ---- notes ---- */
+      h += '<ul class="wp-notes">' + def.notes.map(function (n) { return '<li>' + n + '</li>'; }).join('') + '</ul>';
+      $('#wp-list-body').html(h);
+      renderListTable();
+
+      $('#wp-ip-type span').on('click', function () {
+        $('#wp-ip-type span').removeClass('on'); $(this).addClass('on');
+        $('#wp-ip6-note').toggle($(this).data('v') === 'ipv6');
+      });
+      function add() {
+        if ($('#wp-ip-type .on').data('v') === 'ipv6') {
+          layer.msg('The WAF engine supports IPv4 only', { icon: 2 }); return;
+        }
+        var v = ($('#wp-l-start').val() || '').trim();
+        if (!v) { layer.msg('Enter a value', { icon: 0 }); return; }
+        var d = { list_name: def.key, value: v, remark: ($('#wp-l-remark').val() || '').trim() };
+        if (def.kind === 'ip') { d.start_ip = v; d.end_ip = ($('#wp-l-end').val() || '').trim(); }
+        post('list_add', d, function (rr) {
+          layer.msg((rr && rr.msg) || 'No response', { icon: (rr && rr.status) ? 1 : 2 });
+          if (rr && rr.status) loadList();
+        });
+      }
+      $('#wp-list-add').on('click', add);
+      $('#wp-l-start,#wp-l-end,#wp-l-remark').on('keydown', function (e) { if (e.keyCode === 13) add(); });
+      $('#wp-l-q').on('input', function () { S.listQ = $(this).val() || ''; S.listPage = 1; renderListTable(); });
+
+      $('#wp-l-export').on('click', function () {
+        post('list_export', { list_name: def.key }, function (rr) {
+          if (!rr.status) { layer.msg(rr.msg || 'Export failed', { icon: 2 }); return; }
+          layer.msg(rr.rows + ' rows exported', { icon: 1 });
+          window.open(API + 'download_export&filename=' + encodeURIComponent(rr.filename));
+        });
+      });
+      $('#wp-l-import').on('click', function () {
+        layer.open({
+          type: 1, title: 'Import to ' + def.t, area: ['560px', '400px'],
+          content: '<div class="wp-modal" style="padding:18px 22px">' +
+            '<div style="color:#5c6470;font-size:12px;line-height:1.7;margin-bottom:10px">' +
+            'One entry per line. Optional remark after a comma.<br>' +
+            (def.kind === 'ip' ? 'Examples: <code>192.168.1.5</code> · <code>10.0.0.1-10.0.0.9</code> · <code>192.168.1.0/24,office</code>'
+                               : 'Example: <code>/api/callback,payment hook</code>') + '</div>' +
+            '<textarea class="wp-in" id="wp-imp-body" style="width:100%;height:190px;font-family:ui-monospace,Menlo,monospace;font-size:12px"></textarea>' +
+            '<div style="text-align:right;margin-top:12px"><span class="wp-btn primary" id="wp-imp-go">Import</span></div></div>',
+          success: function () {
+            $('#wp-imp-go').on('click', function () {
+              post('list_import', { list_name: def.key, body: $('#wp-imp-body').val() || '' }, function (rr) {
+                layer.msg((rr && rr.msg) || 'No response', { icon: (rr && rr.status) ? 1 : 2, time: 4000 });
+                layer.closeAll('page'); loadList();
+              });
+            });
+          }
+        });
+      });
+      $('#wp-l-empty').on('click', function () {
+        layer.confirm('Remove every entry from <b>' + def.t + '</b>?<br>This cannot be undone.',
+          { icon: 3, title: 'Empty list' }, function (i) {
+            layer.close(i);
+            post('list_empty', { list_name: def.key }, function (rr) {
+              layer.msg((rr && rr.msg) || 'No response', { icon: (rr && rr.status) ? 1 : 2 });
+              loadList();
+            });
+          });
+      });
+    });
+  }
+
+  function renderListTable() {
+    var def = listDef();
+    var q = (S.listQ || '').toLowerCase();
+    var all = (S.listRows || []).filter(function (x) {
+      return !q || (x.display + ' ' + (x.remark || '')).toLowerCase().indexOf(q) !== -1;
+    });
+    var pages = Math.max(Math.ceil(all.length / S.listSize), 1);
+    if (S.listPage > pages) S.listPage = pages;
+    var rows = all.slice((S.listPage - 1) * S.listSize, S.listPage * S.listSize);
+    var col1 = def.kind === 'ip' ? 'Start IP - End IP' : (def.kind === 'ua' ? 'User-Agent rule' : 'URL rule');
+
+    var h = '<table class="wp-tbl"><thead><tr><th>' + col1 + '</th>' +
+      '<th style="width:90px">Type</th><th style="width:220px">Remarks</th>' +
+      '<th style="width:90px">Operate</th></tr></thead><tbody>';
+    h += rows.length ? rows.map(function (v) {
+      return '<tr><td style="color:var(--wp-text);' +
+        (def.kind === 'ua' ? 'font-family:ui-monospace,Menlo,monospace;font-size:12px;word-break:break-all' : '') + '">' +
+        esc(v.display) + '</td>' +
+        '<td>' + esc(v.type || (def.kind === 'ip' ? 'IPv4' : 'URL')) + '</td>' +
+        '<td class="ell">' + (v.remark ? esc(v.remark) : '<span style="color:var(--wp-text3)">--</span>') + '</td>' +
+        '<td><span class="wp-lnk wp-list-del" data-i="' + v.index + '">Delete</span></td></tr>';
+    }).join('') : '<tr><td colspan="4" class="wp-empty">' +
+      (S.listRows.length ? 'Nothing matches "' + esc(S.listQ) + '"' : 'List is empty') + '</td></tr>';
+    h += '</tbody></table>';
+    h += pager(S.listPage, pages, all.length, 'wp-l-pg');
+    $('#wp-list-table').html(h);
+
+    bindPager('wp-l-pg', pages, function (p) { S.listPage = p; renderListTable(); });
+    $('.wp-list-del').on('click', function () {
+      var idx = $(this).data('i');
+      layer.confirm('Delete this entry?', { icon: 3, title: 'Delete' }, function (i) {
+        layer.close(i);
+        post('list_del', { list_name: listDef().key, index: idx }, function (rr) {
+          layer.msg((rr && rr.msg) || 'No response', { icon: (rr && rr.status) ? 1 : 2 });
+          loadList();
+        });
+      });
+    });
+  }
+  function formRow(label, ctrl) {
+    return '<div class="wp-form-row"><div class="wp-form-lbl">' + label + '</div>' +
+      '<div class="wp-form-ctl">' + ctrl + '</div></div>';
+  }
+
+  /* ================= CUSTOM RULES ================= */
+  /* ================= CUSTOM RULES =================
+     User-defined multi-condition rules. Each rule is a set of AND-conditions;
+     if all match, the action fires. Evaluated before the built-in filters, so
+     an allow rule whitelists and a block rule pre-empts them. */
+  var CR_FIELDS = [
+    { v: 'ip', t: 'IP range', kind: 'ipset' },
+    { v: 'country', t: 'Country', kind: 'country' },
+    { v: 'method', t: 'Method', kind: 'text' },
+    { v: 'uri', t: 'URI (path)', kind: 'text' },
+    { v: 'uri_args', t: 'URI (with parameters)', kind: 'text' },
+    { v: 'uri_param', t: 'URI parameter', kind: 'named' },
+    { v: 'args', t: 'Query string', kind: 'text' },
+    { v: 'user_agent', t: 'User-Agent', kind: 'text' },
+    { v: 'referer', t: 'Referer', kind: 'text' },
+    { v: 'cookie', t: 'Cookie', kind: 'text' },
+    { v: 'header', t: 'Request header', kind: 'named' }
+  ];
+  var CR_TEXT_OPS = [
+    { v: 'eq', t: 'equals' }, { v: 'ne', t: 'does not equal' },
+    { v: 'contains', t: 'contains' }, { v: 'ncontains', t: 'does not contain' },
+    { v: 'prefix', t: 'starts with' }, { v: 'suffix', t: 'ends with' },
+    { v: 'regex', t: 'matches regex' }, { v: 'in', t: 'is one of (comma list)' },
+    { v: 'exists', t: 'exists' }, { v: 'nexists', t: 'is absent' }
+  ];
+  var CR_SET_OPS = [{ v: 'match', t: 'is in' }, { v: 'notmatch', t: 'is not in' }];
+  var CR_STATUS = [
+    { code: 403, name: '403 Access denied' }, { code: 444, name: '444 Close connection' },
+    { code: 404, name: '404 Not found' }, { code: 502, name: '502 Bad gateway' },
+    { code: 503, name: '503 Service unavailable' }
+  ];
+  function crFieldOf(v) { return CR_FIELDS.filter(function (x) { return x.v === v; })[0] || CR_FIELDS[0]; }
+  function crFieldName(v) { return crFieldOf(v).t; }
+  function crRuleSummary(r) {
+    // the paid UI lists the fields a rule matches on
+    var seen = {}, out = [];
+    (r.conds || []).forEach(function (c) { if (!seen[c.field]) { seen[c.field] = 1; out.push(crFieldName(c.field)); } });
+    return out.join(', ');
+  }
+  function crActionText(r) {
+    if (r.action === 'allow') return 'Allow (whitelist)';
+    if (r.action === 'block') return 'Intercept (default blocked page)';
+    return 'Intercept (' + r.status + ' response)';
+  }
+
+  function pageRules() {
+    $('#wp-body').html('<div class="wp-loading">Loading...</div>');
+    post('custom_rules', {}, function (r) {
+      if (!r.status) { $('#wp-body').html('<div class="wp-note">' + esc(r.msg || 'error') + '</div>'); return; }
+      S.crMeta = r;
+      renderCustom(r);
+    });
+  }
+
+  function renderCustom(r) {
+    var e = r.engine || {};
+    var h = '';
+    if (!e.wired) {
+      h += '<div class="wp-note" style="margin-bottom:12px">' + icoWarn() +
+        ' The engine is not wired into nginx, so these rules are stored but not enforced.</div>';
+    }
+    h += '<div class="wp-card">';
+    h += '<div style="margin-bottom:14px"><span class="wp-btn primary" id="cr-add">Add custom interception</span></div>';
+    h += '<table class="wp-tbl"><thead><tr>' +
+      '<th style="width:140px">Rule name</th>' +
+      '<th style="width:160px">Website name</th>' +
+      '<th style="width:90px">Status</th>' +
+      '<th style="width:60px">Hits</th>' +
+      '<th>Rule</th>' +
+      '<th style="width:230px">Action</th>' +
+      '<th style="width:140px">Operate</th></tr></thead><tbody>';
+    if (!r.rules.length) {
+      h += '<tr><td colspan="7" style="padding:26px;text-align:center;color:var(--wp-text3)">No custom rule yet.</td></tr>';
+    } else {
+      h += r.rules.map(function (x) {
+        return '<tr data-id="' + x.id + '">' +
+          '<td style="color:var(--wp-text);font-weight:600">' + esc(x.name) + '</td>' +
+          '<td class="ell" title="' + esc(x.site) + '">' + esc(x.site) + '</td>' +
+          '<td><span class="cr-st" style="cursor:pointer;color:' + (x.open ? 'var(--wp-green)' : 'var(--wp-text3)') + '">' +
+            (x.open ? 'Running &#9654;' : 'Stopped &#9632;') + '</span></td>' +
+          '<td style="color:' + (x.hits ? 'var(--wp-red)' : 'var(--wp-text3)') + ';font-weight:600">' + num(x.hits) + '</td>' +
+          '<td style="color:var(--wp-text2)">' + esc(crRuleSummary(x)) + '</td>' +
+          '<td>' + esc(crActionText(x)) + '</td>' +
+          '<td>' +
+            '<a href="javascript:;" class="cr-copy" style="color:var(--wp-green)">Copy</a> <span style="color:var(--wp-border)">|</span> ' +
+            '<a href="javascript:;" class="cr-edit" style="color:var(--wp-green)">Edit</a> <span style="color:var(--wp-border)">|</span> ' +
+            '<a href="javascript:;" class="cr-del" style="color:var(--wp-green)">Delete</a></td></tr>';
+      }).join('');
+    }
+    h += '</tbody></table>';
+    h += '<ul class="wp-notes">' +
+      '<li>Custom rules run before the built-in filters: an <b>allow</b> rule whitelists the request, a <b>block</b> rule stops it early.</li>' +
+      '<li>All conditions in a rule must match (AND). Loopback and LAN traffic is never touched.</li>' +
+      '</ul>';
+    h += '</div>';
+    $('#wp-body').html(h);
+
+    $('#cr-add').on('click', function () { crDialog(null); });
+    $('#wp-body').on('click', '.cr-edit', function () {
+      var id = $(this).closest('tr').data('id');
+      crDialog(r.rules.filter(function (x) { return x.id === id; })[0]);
+    });
+    $('#wp-body').on('click', '.cr-copy', function () {
+      var id = $(this).closest('tr').data('id');
+      post('custom_copy', { id: id }, function (rr) {
+        layer.msg(rr.msg, { icon: rr.status ? 1 : 2 });
+        if (rr.status) route();
+      });
+    });
+    $('#wp-body').on('click', '.cr-st', function () {
+      var tr = $(this).closest('tr'), id = tr.data('id');
+      var rule = r.rules.filter(function (x) { return x.id === id; })[0];
+      post('custom_toggle', { id: id, open: rule.open ? 0 : 1 }, function (rr) {
+        layer.msg(rr.msg, { icon: rr.status ? 1 : 2 });
+        if (rr.status) route();
+      });
+    });
+    $('#wp-body').on('click', '.cr-del', function () {
+      var id = $(this).closest('tr').data('id');
+      layer.confirm('Delete this custom rule?', function (i) {
+        layer.close(i);
+        post('custom_del', { id: id }, function (rr) {
+          layer.msg(rr.msg, { icon: rr.status ? 1 : 2 });
+          if (rr.status) route();
+        });
+      });
+    });
+  }
+
+  // one condition row inside the dialog
+  function crCondRow(c) {
+    c = c || { field: 'uri', op: 'contains', extra: '', value: '' };
+    var fopts = CR_FIELDS.map(function (f) {
+      return '<option value="' + f.v + '"' + (f.v === c.field ? ' selected' : '') + '>' + f.t + '</option>';
+    }).join('');
+    return '<div class="cr-cond" style="display:flex;gap:6px;align-items:flex-start;margin-bottom:8px;flex-wrap:wrap">' +
+      '<select class="wp-in cr-c-field" style="width:150px">' + fopts + '</select>' +
+      '<input class="wp-in cr-c-extra" placeholder="name" style="width:110px" value="' + esc(c.extra || '') + '">' +
+      '<select class="wp-in cr-c-op" style="width:150px"></select>' +
+      '<input class="wp-in cr-c-value" placeholder="value" style="flex:1;min-width:140px" value="' + esc(c.value || '') + '">' +
+      '<span class="wp-btn cr-c-del" style="padding:6px 10px">&times;</span></div>';
+  }
+  // sync a condition row's op list + which inputs show, from its field
+  function crSyncRow($row, presetOp) {
+    var f = crFieldOf($row.find('.cr-c-field').val());
+    var ops = (f.kind === 'ipset' || f.kind === 'country') ? CR_SET_OPS : CR_TEXT_OPS;
+    $row.find('.cr-c-op').html(ops.map(function (o) {
+      return '<option value="' + o.v + '"' + (o.v === presetOp ? ' selected' : '') + '>' + o.t + '</option>';
+    }).join(''));
+    $row.find('.cr-c-extra').css('display', f.kind === 'named' ? '' : 'none')
+      .attr('placeholder', f.v === 'header' ? 'header name' : 'param name');
+    var op = $row.find('.cr-c-op').val();
+    var noVal = (op === 'exists' || op === 'nexists');
+    $row.find('.cr-c-value').css('display', noVal ? 'none' : '')
+      .attr('placeholder', (f.kind === 'ipset') ? '1.2.3.0/24, 5.5.5.5'
+        : (f.kind === 'country') ? 'TR, US, DE' : 'value');
+  }
+
+  function crDialog(rule) {
+    var r = S.crMeta, edit = !!rule;
+    rule = rule || { name: '', site: '', action: 'block', status: 403,
+                     conds: [{ field: 'uri', op: 'contains', extra: '', value: '' }] };
+    var sites = (r.sites || []).map(function (s) {
+      return '<option value="' + esc(s) + '"' + (s === rule.site ? ' selected' : '') + '>' + esc(s) + '</option>';
+    }).join('');
+    var codes = CR_STATUS.map(function (s) {
+      return '<option value="' + s.code + '"' + (s.code === rule.status ? ' selected' : '') + '>' + s.name + '</option>';
+    }).join('');
+
+    var h = '<div class="wp-modal">' +
+      '<div class="wp-mod-head">' +
+        '<div class="wp-mod-site">' + (edit ? 'Edit' : 'Add') + ' custom interception</div>' +
+        '<div class="wp-mod-meta">All conditions must match for the action to fire.</div>' +
+      '</div>' +
+      '<div class="wp-mod-body">' +
+        '<div class="wp-mod-sec"><div class="wp-mod-sec-t">Rule</div>' +
+          '<div class="wp-mod-row"><div class="wp-mod-lbl">Rule name</div>' +
+            '<div class="wp-mod-ctl"><input class="wp-in" id="cr-name" style="min-width:250px" value="' + esc(rule.name) + '" placeholder="e.g. block_admin"></div>' +
+            '<div class="wp-mod-hint"></div></div>' +
+          '<div class="wp-mod-row"><div class="wp-mod-lbl">Website</div>' +
+            '<div class="wp-mod-ctl"><select class="wp-in" id="cr-site" style="min-width:250px">' + sites + '</select></div>' +
+            '<div class="wp-mod-hint"></div></div>' +
+        '</div>' +
+        '<div class="wp-mod-sec"><div class="wp-mod-sec-t">Conditions <span style="text-transform:none;font-weight:400;color:var(--wp-text3)">(all must match)</span></div>' +
+          '<div id="cr-conds"></div>' +
+          '<span class="wp-btn" id="cr-add-cond" style="margin-top:4px">+ Add condition</span>' +
+        '</div>' +
+        '<div class="wp-mod-sec"><div class="wp-mod-sec-t">Action</div>' +
+          '<div class="wp-mod-row"><div class="wp-mod-lbl">When matched</div>' +
+            '<div class="wp-mod-ctl"><select class="wp-in" id="cr-action" style="min-width:250px">' +
+              '<option value="block"' + (rule.action === 'block' ? ' selected' : '') + '>Intercept — default blocked page</option>' +
+              '<option value="code"' + (rule.action === 'code' ? ' selected' : '') + '>Intercept — custom status code</option>' +
+              '<option value="allow"' + (rule.action === 'allow' ? ' selected' : '') + '>Allow — whitelist, skip all checks</option>' +
+            '</select></div>' +
+            '<div class="wp-mod-hint"></div></div>' +
+          '<div class="wp-mod-row" id="cr-code-row"><div class="wp-mod-lbl">Status code</div>' +
+            '<div class="wp-mod-ctl"><select class="wp-in" id="cr-code" style="min-width:250px">' + codes + '</select></div>' +
+            '<div class="wp-mod-hint"></div></div>' +
+        '</div>' +
+      '</div>' +
+      '<div class="wp-mod-foot">' +
+        '<span class="wp-btn" id="cr-cancel">Cancel</span>' +
+        '<span class="wp-btn primary" id="cr-ok">' + (edit ? 'Save' : 'Add') + '</span>' +
+      '</div></div>';
+
+    var idx = layer.open({ type: 1, title: false, closeBtn: 1, area: ['760px', '640px'], content: h });
+
+    function addCond(c) {
+      var $row = $(crCondRow(c)).appendTo('#cr-conds');
+      crSyncRow($row, c && c.op);
+    }
+    (rule.conds || []).forEach(addCond);
+    $('#cr-add-cond').on('click', function () { addCond(null); });
+    $('#cr-conds').on('change', '.cr-c-field', function () { crSyncRow($(this).closest('.cr-cond')); });
+    $('#cr-conds').on('change', '.cr-c-op', function () { crSyncRow($(this).closest('.cr-cond'), $(this).val()); });
+    $('#cr-conds').on('click', '.cr-c-del', function () {
+      if ($('.cr-cond').length > 1) $(this).closest('.cr-cond').remove();
+      else layer.msg('A rule needs at least one condition', { icon: 0 });
+    });
+
+    function syncCode() { $('#cr-code-row').css('display', $('#cr-action').val() === 'code' ? '' : 'none'); }
+    syncCode();
+    $('#cr-action').on('change', syncCode);
+    $('#cr-cancel').on('click', function () { layer.close(idx); });
+    $('#cr-ok').on('click', function () {
+      var conds = [];
+      $('.cr-cond').each(function () {
+        var $r = $(this);
+        conds.push({ field: $r.find('.cr-c-field').val(), op: $r.find('.cr-c-op').val(),
+                     extra: $r.find('.cr-c-extra').val(), value: $r.find('.cr-c-value').val() });
+      });
+      var payload = { name: $('#cr-name').val(), site: $('#cr-site').val(),
+                      action: $('#cr-action').val(), status_code: $('#cr-code').val(),
+                      conds: JSON.stringify(conds) };
+      if (edit) payload.id = rule.id;
+      post(edit ? 'custom_edit' : 'custom_add', payload, function (rr) {
+        layer.msg(rr.msg, { icon: rr.status ? 1 : 2 });
+        if (rr.status) { layer.close(idx); route(); }
+      });
+    });
+  }
+
+  /* ================= OVERVIEW ================= */
+  function pageOverview() {
+    $('#wp-body').html('<div class="wp-loading">Loading dashboard...</div>');
+    post('overview', {}, function (d) {
+      if (d.engine_installed === false) {
+        $('#wp-body').html('<div class="wp-note">The <b>Nginx free firewall</b> engine is not installed. ' +
+          'WAF Pro Panel is the management UI for that engine — install it from the App Store first.</div>');
+        return;
+      }
+      if (!d.status) { $('#wp-body').html('<div class="wp-note">' + esc(d.msg || 'Failed to load') + '</div>'); return; }
+      var c = d.cards || {};
+      var h = '';
+
+      /* ---- Pro layout: narrow left column, wide right column ---- */
+      h += '<div class="wp-row wp-main-grid">';
+
+      // ---- LEFT column ----
+      h += '<div class="wp-col">';
+      h += '<div class="wp-daterow">' +
+        '<div class="wp-seg"><span class="' + (S.range === 'yesterday' ? 'on' : '') + '" data-r="yesterday">Yesterday</span>' +
+        '<span class="' + (S.range === 'today' ? 'on' : '') + '" data-r="today">Today</span></div>' +
+        '<span class="wp-count" title="Blocked today">' + num(c.malicious_request) + '</span>' +
+        '<span class="wp-btn wp-ref" id="wp-refresh" title="Refresh">&#8635;</span></div>';
+      h += '<div class="wp-stat-2">' +
+        statCard('Today request', c.today_request, c.today_request_pct, 'Yesterday: ' + num(c.yesterday_request), false) +
+        statCard('Malicious request', c.malicious_request, c.malicious_request_pct, 'Yesterday: ' + num(c.yesterday_malicious), true) +
+        '</div>';
+      h += '<div class="wp-card"><div class="wp-card-h">' + icoPulse() +
+        '<span class="t" id="wp-qps-t">Real-time QPS: 0/s</span></div>' +
+        '<div class="wp-chart sm" id="wp-qps-chart"></div></div>';
+      h += '<div class="wp-card"><div class="wp-card-h">' + icoClock() +
+        '<span class="t" id="wp-rt-t">Real-time origin response: 0ms</span></div>' +
+        '<div id="wp-rt-holder"><div class="wp-chart sm" id="wp-rt-chart"></div></div></div>';
+      h += '<div class="wp-card"><div class="wp-card-h">' + icoWarn() +
+        '<span class="t">Attacked domains TOP10</span></div>' +
+        '<div id="wp-top-domains"></div></div>';
+      // what kind of attacks are landing — the engine already counts this per
+      // rule, and it is the first thing you want when a number spikes
+      h += '<div class="wp-card"><div class="wp-card-h">' + icoPie() +
+        '<span class="t">Intercept types</span></div>' +
+        '<div id="wp-by-rule"></div></div>';
+      h += '</div>';
+
+      // ---- RIGHT column ----
+      h += '<div class="wp-col">';
+      h += '<div class="wp-card"><div class="wp-card-h">' + icoFilter() +
+        '<span class="t">Traffic filtering request chart</span>' +
+        '<span class="r"><span class="wp-chip">Unique IP: ' + num(c.today_ips) + '</span>' +
+        '<span class="wp-chip">Traffic: ' + mb(c.today_bytes) + '</span></span></div>' +
+        '<div class="wp-chart" id="wp-main-chart"></div></div>';
+      // map card holds the map AND the attacker table, like the Pro UI
+      h += '<div class="wp-card"><div class="wp-card-h">' + icoGlobe() +
+        '<span class="t">Access / Block Map</span>' +
+        '<span class="r"><span style="color:var(--wp-text3);font-size:12px">(*Only shows TOP coordinates)</span>' +
+        '<div class="wp-seg" id="wp-map-mode">' +
+        '<span data-m="requests">Requests</span><span class="on" data-m="blocks">Blocks</span></div></span></div>' +
+        '<div class="wp-map-wrap">' +
+        '<div><div class="wp-chart" style="height:320px" id="wp-map"></div>' +
+        '<div class="wp-legend"><span>Low</span><i class="g1"></i><i class="g2"></i><i class="g3"></i><span>High</span></div></div>' +
+        '<div class="wp-attack-side"><div class="wp-scroll" style="max-height:352px">' +
+        '<table class="wp-tbl"><thead><tr><th>Attack IP</th><th style="width:76px">Times</th>' +
+        '<th style="width:118px">IP attribution</th></tr></thead>' +
+        '<tbody id="wp-attack-ips"></tbody></table></div></div>' +
+        '</div></div>';
+      h += '</div>';
+      h += '</div>';
+
+      // ---- bottom: remaining TOP10 panels (Attacked domains lives in the left column) ----
+      h += '<div class="wp-row" style="grid-template-columns:repeat(2,1fr)">';
+      h += '<div class="wp-card"><div class="wp-card-h">' + icoChart() + '<span class="t">Traffic ranking TOP10</span></div>' +
+        '<div id="wp-top-traffic"></div></div>';
+      h += '<div class="wp-card"><div class="wp-card-h">' + icoDoc() + '<span class="t">Visited pages TOP10</span></div>' +
+        '<div id="wp-top-urls"></div></div>';
+      h += '</div>';
+
+      // ---- latest intercepts ----
+      h += '<div class="wp-row" style="grid-template-columns:1fr">';
+      h += '<div class="wp-card"><div class="wp-card-h">' + icoClock() + '<span class="t">Latest intercepts</span></div>' +
+        '<div class="wp-scroll" style="max-height:200px"><table class="wp-tbl"><thead><tr>' +
+        '<th style="width:150px">Time</th><th style="width:130px">IP</th><th style="width:120px">Country</th>' +
+        '<th>URL</th><th style="width:100px">Type</th>' +
+        '</tr></thead><tbody id="wp-recent"></tbody></table></div></div>';
+      h += '</div>';
+
+      $('#wp-body').html(h);
+      fillOverview(d);
+
+      $('#wp-refresh').on('click', pageOverview);
+      $('.wp-seg span').on('click', function () {
+        S.range = $(this).data('r');
+        $('.wp-seg span').removeClass('on'); $(this).addClass('on');
+        drawMainChart(d);
+      });
+
+      $('#wp-map-mode span').on('click', function () {
+        $('#wp-map-mode span').removeClass('on');
+        $(this).addClass('on');
+        S.mapMode = $(this).data('m');
+        drawMap(d);
+      });
+
+      // default to whichever map mode actually has points to show
+      if (!S.mapMode) {
+        S.mapMode = (d.attack_map && d.attack_map.length) ? 'blocks' : 'requests';
+        $('#wp-map-mode span').removeClass('on')
+          .filter('[data-m="' + S.mapMode + '"]').addClass('on');
+      }
+
+      ensureEcharts(function () {
+        drawMainChart(d);
+        loadWorld(function () { drawMap(d); });
+        startQps();
+      });
+    });
+  }
+
+  /* ---------- world map ---------- */
+  function loadWorld(cb) {
+    if (typeof echarts === 'undefined') return cb();
+    if (echarts.getMap && echarts.getMap('world')) return cb();
+    // the panel already ships the world geojson — no external CDN needed
+    $.getJSON('/static/vite/data/world.json').done(function (geo) {
+      try { echarts.registerMap('world', geo); } catch (e) {}
+      cb();
+    }).fail(function () { cb(); });
+  }
+
+  function drawMap(d) {
+    var mode = S.mapMode || 'blocks';
+    var pts = (mode === 'blocks' ? d.attack_map : d.request_map) || [];
+    var countries = (mode === 'blocks' ? d.by_country : d.request_countries) || [];
+    rankCountries(countries);
+
+    var el = document.getElementById('wp-map');
+    if (!el) return;
+    if (typeof echarts === 'undefined' || !echarts.getMap || !echarts.getMap('world')) {
+      el.innerHTML = '<div class="wp-empty">World map data unavailable</div>';
+      return;
+    }
+    if (!pts.length) {
+      el.innerHTML = '<div class="wp-empty">No ' + (mode === 'blocks' ? 'blocked' : 'request') + ' locations today</div>';
+      return;
+    }
+    var max = Math.max.apply(null, pts.map(function (p) { return p.count; })) || 1;
+    var color = mode === 'blocks' ? '#ef4d4d' : '#20a53a';
+    ec('wp-map', {
+      tooltip: {
+        trigger: 'item',
+        formatter: function (p) {
+          if (!p.data || !p.data.meta) return p.name || '';
+          var m = p.data.meta;
+          return (m.country || 'Unknown') + (m.city ? ' / ' + m.city : '') +
+            '<br/>' + (mode === 'blocks' ? 'Blocks: ' : 'Requests: ') + m.count;
+        }
+      },
+      geo: {
+        map: 'world', roam: true, zoom: 1.2, center: [10, 20],
+        itemStyle: { areaColor: '#eef1f3', borderColor: '#dfe4e8' },
+        emphasis: { itemStyle: { areaColor: '#e3ece5' }, label: { show: false } }
+      },
+      series: [{
+        type: 'effectScatter', coordinateSystem: 'geo', zlevel: 2,
+        rippleEffect: { brushType: 'stroke', scale: 2.5 },
+        symbolSize: function (v) { return Math.max(6, Math.min(26, 6 + (v[2] / max) * 20)); },
+        itemStyle: { color: color },
+        data: pts.map(function (p) {
+          return { name: p.country || '', value: [p.lon, p.lat, p.count], meta: p };
+        })
+      }]
+    });
+  }
+
+  function rankCountries(list) {
+    // the country panel only exists in some layouts — skip quietly if absent
+    if (!$('#wp-country-rank').length) return;
+    if (!list.length) { $('#wp-country-rank').html('<div class="wp-empty">No data</div>'); return; }
+    var max = Math.max.apply(null, list.map(function (x) { return x.count; })) || 1;
+    $('#wp-country-rank').html(list.slice(0, 15).map(function (x, i) {
+      return '<div class="wp-rank"><span class="n' + (i < 3 ? ' top' : '') + '">' + (i + 1) + '</span>' +
+        '<span class="nm" style="flex:0 0 46px">' + esc(x.code || '??') + '</span>' +
+        '<span class="tr"><i style="width:' + Math.max(x.count / max * 100, 2) + '%"></i></span>' +
+        '<span class="v">' + num(x.count) + '</span></div>';
+    }).join(''));
+  }
+
+  function statCard(label, val, pct, sub, isRed) {
+    var cls = (pct > 0) ? 'up' : 'down';
+    var arrow = (pct > 0) ? '&#8593;' : '&#8595;';
+    return '<div class="wp-stat">' +
+      '<div class="lbl"><span class="bar' + (isRed ? ' red' : '') + '"></span>' + label + '</div>' +
+      '<div class="val" style="color:' + (isRed ? 'var(--wp-red)' : 'var(--wp-text)') + '">' + num(val) + '</div>' +
+      '<div class="pct ' + cls + '">' + arrow + ' ' + Math.abs(pct || 0) + '%</div>' +
+      '<div class="sub">' + sub + '</div>' +
+      (isRed ? svgShieldBg() : svgBugBg()) + '</div>';
+  }
+
+  function fillOverview(d) {
+    // attack IPs
+    var ips = d.top_attack_ips || [];
+    var recent = d.recent_attacks || [];
+    var lastBy = {};
+    recent.forEach(function (r) { if (!lastBy[r.ip]) lastBy[r.ip] = r; });
+    $('#wp-attack-ips').html(ips.length ? ips.map(function (x) {
+      var attr = x.country ? (x.country + (x.city ? ' / ' + x.city : '')) : 'Unknown';
+      return '<tr><td class="ell" style="color:var(--wp-text);font-weight:600" title="' + esc(x.ip) + '">' + esc(x.ip) + '</td>' +
+        '<td style="color:var(--wp-red);font-weight:600">' + x.count + '</td>' +
+        '<td class="ell" title="' + esc(attr) + '">' + esc(attr) + '</td></tr>';
+    }).join('') : '<tr><td colspan="3" class="wp-empty">No attacks recorded today</td></tr>');
+
+    rank('#wp-top-domains', (d.attacked_domains || []).map(function (x) {
+      return { name: x.domain, value: x.count };
+    }), '');
+    renderByRule(d.by_rule || {});
+    rank('#wp-top-traffic', (d.top_domains_traffic || []).map(function (x) {
+      return { name: x.domain, value: x.bytes, fmt: mb(x.bytes) };
+    }), '');
+    rank('#wp-top-urls', (d.top_urls || []).map(function (x) {
+      return { name: x.url, value: x.count };
+    }), '');
+
+    $('#wp-recent').html(recent.length ? recent.slice(0, 20).map(function (r) {
+      return '<tr><td>' + esc(r.time) + '</td><td>' + esc(r.ip) + '</td>' +
+        '<td class="ell">' + esc(r.country || '-') + '</td>' +
+        '<td class="ell" title="' + esc(r.url) + '">' + esc(r.url) + '</td>' +
+        '<td><span class="wp-chip ' + esc(r.type) + '">' + esc(r.type) + '</span></td></tr>';
+    }).join('') : '<tr><td colspan="5" class="wp-empty">No intercepts today</td></tr>');
+  }
+
+  /* The engine logs rule ids ('get', 'upload-ext', 'region:pass'); nobody
+     reads those as attack types, so map them to what actually happened. */
+  var RULE_LABELS = {
+    'get': 'SQL/XSS in query', 'post': 'SQL/XSS in body', 'cookie': 'Cookie attack',
+    'user-agent': 'Scanner', 'scan': 'Sensitive path probe', 'cc': 'CC flood',
+    'cc-blocked': 'CC flood', 'banned': 'Auto-banned IP', 'ip-black': 'IP blacklist',
+    'url-black': 'URL blacklist', 'deny-ext': 'Forbidden file', 'upload-ext': 'Webshell upload',
+    'php-path': 'PHP in upload dir', 'method': 'Bad HTTP method', 'header': 'Oversized header',
+    'region:intercept': 'Region blocked', 'region:pass': 'Region not allowed'
+  };
+  function ruleLabel(k) { return RULE_LABELS[k] || k; }
+
+  function renderByRule(by) {
+    var items = Object.keys(by).map(function (k) {
+      return { name: ruleLabel(k), value: by[k] };
+    }).sort(function (a, b) { return b.value - a.value; });
+    rank('#wp-by-rule', items, '');
+  }
+
+  function rank(sel, items, unit) {
+    if (!items.length) { $(sel).html('<div class="wp-empty">No data</div>'); return; }
+    var max = Math.max.apply(null, items.map(function (x) { return x.value; })) || 1;
+    $(sel).html(items.slice(0, 10).map(function (x, i) {
+      return '<div class="wp-rank"><span class="n' + (i < 3 ? ' top' : '') + '">' + (i + 1) + '</span>' +
+        '<span class="nm" title="' + esc(x.name) + '">' + esc(x.name) + '</span>' +
+        '<span class="tr"><i style="width:' + Math.max(x.value / max * 100, 2) + '%"></i></span>' +
+        '<span class="v">' + (x.fmt || num(x.value)) + unit + '</span></div>';
+    }).join(''));
+  }
+
+  function drawMainChart(d) {
+    var ch = d.chart || {};
+    ec('wp-main-chart', {
+      tooltip: { trigger: 'axis', axisPointer: { type: 'line' } },
+      legend: { data: ['Total requests', 'After filtering', 'Blocked', 'IP count'], top: 0, icon: 'circle', itemWidth: 8, textStyle: { fontSize: 11, color: '#5c6470' } },
+      grid: { left: 40, right: 16, top: 32, bottom: 24 },
+      xAxis: { type: 'category', data: ch.hours || [], boundaryGap: false, axisLine: { lineStyle: { color: '#ebedf0' } }, axisLabel: { color: '#9aa1ab', fontSize: 11 } },
+      yAxis: { type: 'value', splitLine: { lineStyle: { color: '#f4f5f6', type: 'dashed' } }, axisLabel: { color: '#9aa1ab', fontSize: 11 } },
+      series: [
+        { name: 'Total requests', type: 'line', smooth: true, symbol: 'none', data: ch.total || [], lineStyle: { width: 2, color: '#20a53a' }, areaStyle: { color: 'rgba(32,165,58,.08)' } },
+        { name: 'After filtering', type: 'line', smooth: true, symbol: 'none', data: ch.after_filter || [], lineStyle: { width: 1.5, color: '#a8b4c0' } },
+        { name: 'Blocked', type: 'line', smooth: true, symbol: 'none', data: ch.blocked || [], lineStyle: { width: 2, color: '#ef4d4d' }, areaStyle: { color: 'rgba(239,77,77,.08)' } },
+        { name: 'IP count', type: 'line', smooth: true, symbol: 'none', data: ch.ips || [], lineStyle: { width: 1.5, color: '#22c3c3' } }
+      ]
+    });
+  }
+
+
+  function lineOpt(data, labels, color) {
+    return {
+      tooltip: { trigger: 'axis' },
+      grid: { left: 40, right: 10, top: 10, bottom: 22 },
+      xAxis: { type: 'category', data: labels, boundaryGap: false, axisLine: { lineStyle: { color: '#ebedf0' } }, axisLabel: { color: '#9aa1ab', fontSize: 10 } },
+      yAxis: { type: 'value', splitLine: { lineStyle: { color: '#f4f5f6', type: 'dashed' } }, axisLabel: { color: '#9aa1ab', fontSize: 10 } },
+      series: [{ type: 'line', smooth: true, symbol: 'none', data: data, lineStyle: { width: 2, color: color }, areaStyle: { color: color === '#20a53a' ? 'rgba(32,165,58,.1)' : 'rgba(59,130,246,.1)' } }]
+    };
+  }
+  function startQps() {
+    function tick() {
+      post('realtime', {}, function (r) {
+        if (!r.status || !r.qps) return;
+        var q = r.qps;
+        var labels = (q.points || []).map(function (x) { return x.t; });
+        $('#wp-qps-t').text('Real-time QPS: ' + (q.now || 0) + '/s');
+        ec('wp-qps-chart', lineOpt((q.points || []).map(function (x) { return x.v; }), labels, '#20a53a'));
+
+        // origin response: only real data — otherwise offer to switch it on
+        if (q.rt_tracked) {
+          $('#wp-rt-t').text('Real-time origin response: ' + (q.rt_now || 0) + 'ms');
+          if (!$('#wp-rt-chart').length) {
+            $('#wp-rt-holder').html('<div class="wp-chart sm" id="wp-rt-chart"></div>');
+          }
+          ec('wp-rt-chart', lineOpt((q.rt_points || []).map(function (x) { return x.v; }), labels, '#3b82f6'));
+        } else {
+          $('#wp-rt-t').text('Real-time origin response');
+          if (!$('#wp-rt-enable').length) {
+            $('#wp-rt-holder').html(
+              '<div style="padding:18px 4px;text-align:center">' +
+              '<div style="color:var(--wp-text3);font-size:12px;line-height:1.7;margin-bottom:12px">' +
+              'Nginx does not log the origin response time by default, so there is no data to chart.<br>' +
+              'Enabling adds an <b>upstream_response_time</b> field to your access logs.</div>' +
+              '<span class="wp-btn primary" id="wp-rt-enable">Enable tracking</span></div>');
+            $('#wp-rt-enable').on('click', function () {
+              layer.confirm('Add the origin-response field to your nginx access logs?<br><br>' +
+                'This edits nginx.conf and the site configs (both are backed up, nginx is ' +
+                'syntax-checked and rolled back automatically if anything fails).',
+                { icon: 3, title: 'Enable origin response tracking' }, function (i) {
+                  layer.close(i);
+                  var ld = layer.msg('Applying...', { icon: 16, time: 0, shade: 0.3 });
+                  post('enable_rt', {}, function (rr) {
+                    layer.close(ld);
+                    layer.msg(rr.msg, { icon: rr.status ? 1 : 2, time: 5000 });
+                  });
+                });
+            });
+          }
+        }
+      });
+    }
+    tick();
+    S.timer = setInterval(tick, 10000);
+  }
+
+  /* ================= WEBSITE ================= */
+  function pageWebsite() {
+    $('#wp-body').html('<div class="wp-loading">Loading...</div>');
+    post('get_sites', {}, function (r) {
+      S.sites = r.data || [];
+      S.malOpen = r.mal_open;
+      S.sitePage = 1; S.siteSize = 10; S.siteQ = '';
+      var h = '<div class="wp-card">';
+      h += '<div style="display:flex;align-items:center;gap:12px;margin-bottom:14px;flex-wrap:wrap">' +
+        '<label style="display:flex;align-items:center;gap:7px;color:var(--wp-text2);cursor:pointer">' +
+        '<input type="checkbox" id="wp-mal-all"' + (r.mal_open ? ' checked' : '') + '> ' +
+        'Intercept access from known malicious IPs <span class="wp-q" title="Blocks IPs from public abuse feeds (botnets, repeat attackers) across every site. Update the list under Global.">?</span></label>' +
+        '<label style="display:flex;align-items:center;gap:7px;color:var(--wp-text2);cursor:pointer">' +
+        '<input type="checkbox" id="wp-site-scan-all"> Enable scan protection on all sites</label>' +
+        '<div style="margin-left:auto;position:relative">' +
+        '<input class="wp-in" id="wp-site-q" placeholder="Please enter site name" style="width:250px;padding-right:30px">' +
+        '</div></div>';
+      h += '<div id="wp-site-table"></div>';
+      h += '<ul style="margin:16px 0 0 18px;color:var(--wp-text3);font-size:12px;line-height:1.9;list-style:disc">' +
+        '<li><b>CDN option:</b> after enabling CDN for a website, turn the CDN switch on — otherwise the CDN node IPs get intercepted instead of the real visitors.</li>' +
+        '<li><b>Scan protection</b> blocks scanners and crawlers. <b>Block abroad</b> rejects requests from outside your country (configure the country list under Region).</li>' +
+        '<li><b>CC defense</b> limits how many requests one IP may send in a cycle; exceeding it blocks the IP for the block time.</li>' +
+        '</ul></div>';
+      $('#wp-body').html(h);
+      renderSiteTable();
+      $('#wp-site-q').on('input', function () {
+        S.siteQ = ($(this).val() || '').toLowerCase(); S.sitePage = 1; renderSiteTable();
+      });
+      $('#wp-mal-all').on('change', function () {
+        var on = this.checked;
+        post('malicious_toggle', { open: on ? 1 : 0 }, function (rr) {
+          layer.msg(rr.msg, { icon: rr.status ? 1 : 2 });
+          if (!rr.status) $('#wp-mal-all').prop('checked', !on);
+        });
+      });
+      $('#wp-site-scan-all').on('change', function () {
+        var on = this.checked ? '1' : '0';
+        var names = S.sites.map(function (s) { return s.name; });
+        var done = 0;
+        if (!names.length) return;
+        var ld = layer.msg('Applying...', { icon: 16, time: 0, shade: 0.3 });
+        names.forEach(function (n) {
+          post('set_site_field', { siteName: n, field: 'scan', value: on }, function () {
+            if (++done === names.length) {
+              layer.close(ld); layer.msg('Scan protection updated on ' + done + ' site(s)', { icon: 1 });
+              pageWebsite();
+            }
+          });
+        });
+      });
+    });
+  }
+
+  function siteFiltered() {
+    return S.sites.filter(function (s) {
+      return !S.siteQ || s.name.toLowerCase().indexOf(S.siteQ) !== -1;
+    });
+  }
+
+  function renderSiteTable() {
+    var all = siteFiltered();
+    var pages = Math.max(Math.ceil(all.length / S.siteSize), 1);
+    if (S.sitePage > pages) S.sitePage = pages;
+    var rows = all.slice((S.sitePage - 1) * S.siteSize, S.sitePage * S.siteSize);
+
+    var h = '<table class="wp-tbl"><thead><tr>' +
+      '<th>Site</th>' +
+      '<th style="width:90px">Total interceptions</th>' +
+      '<th style="width:90px">Fake spider <span class="wp-q" title="Blocks anything calling itself Googlebot or Bingbot from an IP those crawlers do not publish. Verified crawlers pass untouched.">?</span></th>' +
+      '<th style="width:80px">Using CDN <span class="wp-q" title="Read the visitor IP from X-Forwarded-For. Only turn on when a proxy/CDN really sits in front — otherwise visitors can spoof their IP.">?</span></th>' +
+      '<th style="width:95px">Smart CC defense <span class="wp-q" title="Tightens each visitor&apos;s CC allowance automatically while the whole site is under load, instead of one fixed limit.">?</span></th>' +
+      '<th style="width:110px">Crawl Protection <span class="wp-q" title="Bots that are not verified crawlers get their own tight request budget. Shows the per-minute limit.">?</span></th>' +
+      '<th style="width:130px">Waiting Room / Rate Limit <span class="wp-q" title="Past this many requests/second the overflow gets a retry page instead of a timeout.">?</span></th>' +
+      '<th style="width:110px">CC Defense</th>' +
+      '<th style="width:60px">Status</th>' +
+      '<th style="width:100px">Operate</th></tr></thead><tbody>';
+    h += rows.length ? rows.map(function (s) {
+      return '<tr>' +
+        '<td class="ell" style="color:var(--wp-text);font-weight:600" title="' + esc(s.name) + '">' + esc(s.name) + '</td>' +
+        '<td style="color:' + (s.intercepts ? 'var(--wp-red)' : 'var(--wp-text3)') + ';font-weight:600">' + num(s.intercepts) + '</td>' +
+        '<td>' + cbx(s.name, 'fake_spider', s.fake_spider) + '</td>' +
+        '<td>' + cbx(s.name, 'cdn', s.cdn) + '</td>' +
+        '<td>' + cbx(s.name, 'smart_cc', s.smart_cc) + '</td>' +
+        '<td>' + (s.crawl
+          ? '<span style="color:var(--wp-green)">&#10004;</span> <span style="color:var(--wp-text2)">' + num(s.crawl_limit) + '/min</span>'
+          : '<span class="wp-dis">Disable</span>') + '</td>' +
+        '<td>' + (s.wait
+          ? '<span style="color:var(--wp-green)">&#10004;</span> <span style="color:var(--wp-text2)">' + num(s.wait_limit) + '/s</span>'
+          : '<span class="wp-dis">Disable</span>') + '</td>' +
+        '<td>' + (s.cc_open
+          ? '<span style="color:var(--wp-green)">&#10004;</span> <span style="color:var(--wp-text2)">' + num(s.cc_limit) + '/' + s.cc_cycle + 's</span>'
+          : '<span class="wp-dis">Disable</span>') + '</td>' +
+        '<td><label class="wp-sw"><input type="checkbox" class="wp-site-sw" data-n="' + esc(s.name) + '"' + (s.open ? ' checked' : '') + '><span class="sl"></span></label></td>' +
+        '<td><span class="wp-lnk wp-site-log" data-n="' + esc(s.name) + '">Log</span> <span style="color:var(--wp-border)">|</span> ' +
+        '<span class="wp-lnk wp-site-mod" data-n="' + esc(s.name) + '">Modify</span></td></tr>';
+    }).join('') : '<tr><td colspan="10" class="wp-empty">' +
+      (S.sites.length ? 'No site matches "' + esc(S.siteQ) + '"' : 'No sites configured in the WAF engine') + '</td></tr>';
+    h += '</tbody></table>';
+
+    // pagination
+    h += '<div style="display:flex;align-items:center;gap:8px;margin-top:14px;justify-content:flex-end">' +
+      '<span class="wp-btn wp-sp" data-p="prev">&#8249;</span>';
+    for (var i = 1; i <= pages; i++) {
+      h += '<span class="wp-btn wp-sp' + (i === S.sitePage ? ' primary' : '') + '" data-p="' + i + '" style="min-width:32px;justify-content:center">' + i + '</span>';
+    }
+    h += '<span class="wp-btn wp-sp" data-p="next">&#8250;</span>' +
+      '<select class="wp-in" id="wp-site-size" style="width:100px">' +
+      [10, 20, 50].map(function (n) { return '<option value="' + n + '"' + (n === S.siteSize ? ' selected' : '') + '>' + n + ' / page</option>'; }).join('') +
+      '</select>' +
+      '<span style="color:var(--wp-text2)">Total ' + all.length + '</span></div>';
+
+    $('#wp-site-table').html(h);
+
+    $('.wp-site-sw').on('change', function () {
+      var n = $(this).data('n'), on = this.checked ? '1' : '0';
+      post('set_site_field', { siteName: n, field: 'open', value: on }, function (rr) {
+        layer.msg(rr.msg, { icon: rr.status ? 1 : 2 });
+        var s = S.sites.filter(function (x) { return x.name === n; })[0];
+        if (s) s.open = on === '1';
+      });
+    });
+    $('.wp-cbx').on('change', function () {
+      var n = $(this).data('n'), f = $(this).data('f'), on = this.checked ? '1' : '0';
+      post('set_site_field', { siteName: n, field: f, value: on }, function (rr) {
+        layer.msg(rr.msg, { icon: rr.status ? 1 : 2 });
+        var s = S.sites.filter(function (x) { return x.name === n; })[0];
+        if (s) s[f] = on === '1';
+      });
+    });
+    $('.wp-sp').on('click', function () {
+      var p = $(this).data('p');
+      if (p === 'prev') S.sitePage = Math.max(S.sitePage - 1, 1);
+      else if (p === 'next') S.sitePage = Math.min(S.sitePage + 1, pages);
+      else S.sitePage = parseInt(p, 10);
+      renderSiteTable();
+    });
+    $('#wp-site-size').on('change', function () {
+      S.siteSize = parseInt($(this).val(), 10); S.sitePage = 1; renderSiteTable();
+    });
+    $('.wp-site-log').on('click', function () {
+      // jump to Blockade > Interception record, pre-filtered to this site
+      S.blQ = $(this).data('n');
+      S.blSub = 'intercept'; S.blDate = 'all';
+      S.tab = 'blockade'; renderTabs(); route();
+    });
+    $('.wp-site-mod').on('click', function () { siteModify($(this).data('n')); });
+  }
+
+  function cbx(name, field, on) {
+    return '<input type="checkbox" class="wp-cbx" data-n="' + esc(name) + '" data-f="' + field + '"' + (on ? ' checked' : '') + '>';
+  }
+
+  function siteModify(name) {
+    post('get_site_detail', { siteName: name }, function (c) {
+      if (!c.status) { layer.msg(c.msg || 'error', { icon: 2 }); return; }
+      var body = '<div class="wp-modal" id="wp-mod">' +
+        '<div class="wp-mod-head">' +
+          '<div class="wp-mod-site">' + esc(name) + '</div>' +
+          '<div class="wp-mod-meta">Applies within a couple of seconds — no nginx reload.</div>' +
+        '</div>' +
+        '<div class="wp-mod-body">' +
+
+        modSec('Protection', [
+          modRow2('Protection', modSw('m-open', c.open), 'Master switch for this site'),
+          modRow2('Scan protection', modSw('m-scan', c.scan), 'Block probes for .env, .git, backups')
+        ]) +
+
+        modSec('Request filters', [
+          modRow2('GET filter', modSw('m-get', c.get), 'Inspect query strings'),
+          modRow2('POST filter', modSw('m-post', c.post), 'Inspect request bodies'),
+          modRow2('Cookie filter', modSw('m-cookie', c.cookie), 'Inspect cookies'),
+          modRow2('User-Agent filter', modSw('m-ua', c.ua), 'Block scanners by their user-agent')
+        ]) +
+
+        modSec('CC defense', [
+          modRow2('CC defense', modSw('m-cc', c.cc_open), 'Rate-limit repeated requests from one IP'),
+          modRow2('Threshold',
+            '<input class="wp-in" id="m-cc-limit" type="number" value="' + (c.cc_limit || 120) + '"> ' +
+            '<span class="wp-unit">requests /</span> ' +
+            '<input class="wp-in" id="m-cc-cycle" type="number" value="' + (c.cc_cycle || 60) + '"> ' +
+            '<span class="wp-unit">seconds</span>', ''),
+          modRow2('Block time',
+            '<input class="wp-in" id="m-cc-block" type="number" value="' + (c.cc_block || 600) + '"> ' +
+            '<span class="wp-unit">seconds</span>', 'How long an offending IP stays blocked'),
+          modRow2('Smart CC', modSw('m-smart', c.smart_cc),
+            'Tighten each visitor&apos;s allowance automatically while the whole site is under load')
+        ]) +
+
+        modSec('Traffic control', [
+          modRow2('Crawl protection', modSw('m-crawl', c.crawl),
+            'Give unverified bots their own tight budget (verified crawlers unaffected)'),
+          modRow2('Crawl limit',
+            '<input class="wp-in" id="m-crawl-limit" type="number" value="' + (c.crawl_limit || 30) + '"> ' +
+            '<span class="wp-unit">requests / minute</span>', ''),
+          modRow2('Waiting room', modSw('m-wait', c.wait),
+            'Past the rate below, extra visitors get a retry page instead of a timeout'),
+          modRow2('Rate limit',
+            '<input class="wp-in" id="m-wait-limit" type="number" value="' + (c.wait_limit || 200) + '"> ' +
+            '<span class="wp-unit">requests / second (site-wide)</span>', '')
+        ]) +
+
+        modSec('Files', [
+          modRow2('Never serve extensions',
+            '<input class="wp-in wp-wide" id="m-deny-ext" value="' + esc(c.deny_ext || '') + '" placeholder="sql, bak, ini">',
+            'Comma separated, no dots. Direct requests for these files are refused.', true),
+          modRow2('Blocked upload extensions',
+            '<input class="wp-in wp-wide" id="m-upload-ext" value="' + esc(c.upload_ext || '') + '" placeholder="php, jsp, exe">',
+            'Refuse uploads whose filename ends in these — the usual webshell route.', true),
+          modRow2('No PHP under paths',
+            '<input class="wp-in wp-wide" id="m-php-path" value="' + esc(c.php_path || '') + '" placeholder="/upload/, /static/">',
+            'Comma separated path prefixes. A .php request under them is refused, ' +
+            'so an uploaded shell cannot execute.', true)
+        ]) +
+
+        '</div>' +
+        '<div class="wp-mod-foot">' +
+          '<span class="wp-btn" id="m-cancel">Cancel</span>' +
+          '<span class="wp-btn primary" id="m-save">Save</span>' +
+        '</div></div>';
+      layer.open({
+        type: 1, title: 'Modify site — ' + name, area: ['680px', '640px'], content: body,
+        success: function () {
+          $('#m-cancel').on('click', function () { layer.closeAll('page'); });
+          $('#m-save').on('click', function () {
+            var cfg = {
+              open: $('#m-open').is(':checked'), scan: $('#m-scan').is(':checked'),
+              fake_spider: $('#m-spider').is(':checked'), cdn: $('#m-cdn').is(':checked'),
+              get: $('#m-get').is(':checked'), post: $('#m-post').is(':checked'),
+              cookie: $('#m-cookie').is(':checked'), ua: $('#m-ua').is(':checked'),
+              cc_open: $('#m-cc').is(':checked'),
+              cc_limit: parseInt($('#m-cc-limit').val() || 120, 10),
+              cc_cycle: parseInt($('#m-cc-cycle').val() || 60, 10),
+              cc_block: parseInt($('#m-cc-block').val() || 600, 10),
+              smart_cc: $('#m-smart').is(':checked'),
+              crawl: $('#m-crawl').is(':checked'),
+              crawl_limit: parseInt($('#m-crawl-limit').val() || 30, 10),
+              wait: $('#m-wait').is(':checked'),
+              wait_limit: parseInt($('#m-wait-limit').val() || 200, 10),
+              deny_ext: cleanCsv($('#m-deny-ext').val()),
+              upload_ext: cleanCsv($('#m-upload-ext').val()),
+              php_path: cleanCsv($('#m-php-path').val())
+            };
+            post('save_site_detail', { siteName: name, config: JSON.stringify(cfg) }, function (rr) {
+              layer.msg(rr.msg, { icon: rr.status ? 1 : 2 });
+              if (rr.status) { layer.closeAll('page'); pageWebsite(); }
+            });
+          });
+        }
+      });
+    });
+  }
+  // normalise "php, .jsp ,exe" -> "php,jsp,exe"; the engine matches bare, lowercase
+  function cleanCsv(v) {
+    return (v || '').split(',').map(function (x) {
+      return x.trim().replace(/^\./, '').toLowerCase();
+    }).filter(Boolean).join(',');
+  }
+  function modSec(title, rows) {
+    return '<div class="wp-mod-sec"><div class="wp-mod-sec-t">' + title + '</div>' +
+      rows.join('') + '</div>';
+  }
+  function modRow2(label, ctrl, hint, wide) {
+    return '<div class="wp-mod-row' + (wide ? ' wide' : '') + '">' +
+      '<div class="wp-mod-lbl">' + label + '</div>' +
+      '<div class="wp-mod-ctl">' + ctrl + '</div>' +
+      '<div class="wp-mod-hint">' + (hint || '') + '</div>' +
+      '</div>';
+  }
+  function modSw(id, on) {
+    return '<label class="wp-sw"><input type="checkbox" id="' + id + '"' + (on ? ' checked' : '') + '><span class="sl"></span></label>';
+  }
+
+  /* ================= LOGS ================= */
+
+  /* ================= GLOBAL ================= */
+  /* ================= REGION (standalone engine) =================
+     One rule per row, each with its own areas, type and status code — our own
+     engine backs this, so rows are genuinely independent. */
+
+  // Above this the picker warns: the engine binary-searches the ranges, but the
+  // panel still compiles and writes them (the US alone is ~43k ranges).
+  var REG_WARN_CIDR = 20000;
+
+  function pageRegion() {
+    $('#wp-body').html('<div class="wp-loading">Loading...</div>');
+    post('region_rules', {}, function (r) {
+      if (!r.status) { $('#wp-body').html('<div class="wp-note">' + esc(r.msg || 'error') + '</div>'); return; }
+      post('country_list', {}, function (c) {
+        S.regAll = (c && c.status) ? c.data : [];
+        S.regMeta = r;
+        renderRegion(r);
+      });
+    });
+  }
+
+  function renderRegion(r) {
+    var e = r.engine || {};
+    var h = '';
+    if (!e.wired) {
+      h += '<div class="wp-note" style="margin-bottom:12px">' + icoWarn() +
+        ' The WAF Pro engine is not wired into nginx yet, so these rules are stored but <b>not enforced</b>.' +
+        (e.free_waf_active ? ' The free WAF is currently handling traffic; only one lua engine can be active at a time.' : '') +
+        '</div>';
+    }
+    h += '<div class="wp-card">';
+    h += '<div style="margin-bottom:14px"><span class="wp-btn primary" id="rg-add">Add Region Restriction</span></div>';
+    h += '<table class="wp-table" style="width:100%;border-collapse:collapse">' +
+      '<thead><tr>' +
+      ['Area', 'Status', 'Status code', 'Website', 'Type', 'Operate'].map(function (t, i) {
+        return '<th style="text-align:' + (i === 5 ? 'right' : 'left') + ';padding:10px 8px;color:var(--wp-text2);' +
+          'font-weight:400;border-bottom:1px solid var(--wp-border)">' + t + '</th>';
+      }).join('') + '</tr></thead><tbody>';
+    if (!r.rules.length) {
+      h += '<tr><td colspan="6" style="padding:26px;text-align:center;color:var(--wp-text3)">No region restriction yet.</td></tr>';
+    } else {
+      h += r.rules.map(function (x) {
+        var opts = (r.status_codes || []).map(function (s) {
+          return '<option value="' + s.code + '"' + (s.code === x.status ? ' selected' : '') + '>' + esc(s.name) + '</option>';
+        }).join('');
+        return '<tr data-id="' + x.id + '" style="border-bottom:1px solid var(--wp-border)">' +
+          '<td style="padding:9px 8px">' + esc(x.area_text) +
+            '<div style="color:var(--wp-text3);font-size:12px">' + num(x.ranges) + ' ranges</div></td>' +
+          '<td style="padding:9px 8px"><label class="wp-sw"><input type="checkbox" class="rg-on"' +
+            (x.open ? ' checked' : '') + '><span class="sl"></span></label></td>' +
+          '<td style="padding:9px 8px"><select class="wp-in rg-code" style="width:210px">' + opts + '</select></td>' +
+          '<td style="padding:9px 8px">' + esc(x.site) + '</td>' +
+          '<td style="padding:9px 8px">' + (x.type === 'pass' ? 'Pass' : 'Intercept') + '</td>' +
+          '<td style="padding:9px 8px;text-align:right"><a href="javascript:;" class="rg-del" style="color:var(--wp-green)">Delete</a></td>' +
+          '</tr>';
+      }).join('');
+    }
+    h += '</tbody></table></div>';
+    $('#wp-body').html(h);
+
+    $('#rg-add').on('click', regAddDialog);
+    $('#wp-body').on('change', '.rg-on', function () {
+      var id = $(this).closest('tr').data('id'), on = $(this).is(':checked');
+      post('region_rule_toggle', { id: id, open: on ? 1 : 0 }, function (rr) {
+        layer.msg(rr.msg, { icon: rr.status ? 1 : 2 });
+      });
+    });
+    $('#wp-body').on('change', '.rg-code', function () {
+      var id = $(this).closest('tr').data('id');
+      post('region_rule_status', { id: id, status_code: $(this).val() }, function (rr) {
+        layer.msg(rr.msg, { icon: rr.status ? 1 : 2 });
+      });
+    });
+    $('#wp-body').on('click', '.rg-del', function () {
+      var id = $(this).closest('tr').data('id');
+      layer.confirm('Delete this region restriction?', function (i) {
+        layer.close(i);
+        post('region_rule_del', { id: id }, function (rr) {
+          layer.msg(rr.msg, { icon: rr.status ? 1 : 2 });
+          if (rr.status) route();
+        });
+      });
+    });
+  }
+
+  /* Built on the .wp-modal system (head/body/foot): layer renders the dialog
+     outside #wafpro-app, so it needs .wp-modal to pick up the CSS variables,
+     and the sticky foot is what keeps Add reachable without scrolling. */
+  function regAddDialog() {
+    var r = S.regMeta, sel = {}, q = '';
+
+    var sites = (r.sites || []).map(function (s) {
+      return '<option value="' + esc(s) + '">' + esc(s) + '</option>';
+    }).join('');
+    var codes = (r.status_codes || []).map(function (s) {
+      return '<option value="' + s.code + '"' + (s.code === 444 ? ' selected' : '') + '>' + esc(s.name) + '</option>';
+    }).join('');
+
+    var h = '<div class="wp-modal">' +
+      '<div class="wp-mod-head">' +
+        '<div class="wp-mod-site">Add Region Restriction</div>' +
+        '<div class="wp-mod-meta">Match visitors by country and decide what happens. ' +
+          'Loopback and LAN addresses are always allowed.</div>' +
+      '</div>' +
+      '<div class="wp-mod-body">' +
+
+        '<div class="wp-mod-sec">' +
+          '<div class="wp-mod-sec-t">Scope</div>' +
+          '<div class="wp-mod-row"><div class="wp-mod-lbl">Website</div>' +
+            '<div class="wp-mod-ctl"><select class="wp-in" id="ra-site" style="min-width:250px">' + sites + '</select></div>' +
+            '<div class="wp-mod-hint">The rule applies to this site only.</div></div>' +
+          '<div class="wp-mod-row"><div class="wp-mod-lbl">Response</div>' +
+            '<div class="wp-mod-ctl"><select class="wp-in" id="ra-code" style="min-width:250px">' + codes + '</select></div>' +
+            '<div class="wp-mod-hint">What blocked visitors receive.</div></div>' +
+        '</div>' +
+
+        '<div class="wp-mod-sec">' +
+          '<div class="wp-mod-sec-t">Type</div>' +
+          '<div class="wp-seg">' +
+            '<label id="ra-t-i" class="on"><input type="radio" name="ra-type" value="intercept" checked>' +
+              '<span class="t"><span class="dot"></span>Intercept</span>' +
+              '<div class="d">Block the selected areas. Everyone else gets through.</div></label>' +
+            '<label id="ra-t-p"><input type="radio" name="ra-type" value="pass">' +
+              '<span class="t"><span class="dot"></span>Pass</span>' +
+              '<div class="d">Allow only the selected areas. Everyone else is blocked.</div></label>' +
+          '</div>' +
+        '</div>' +
+
+        '<div class="wp-mod-sec">' +
+          '<div class="wp-mod-sec-t">Area</div>' +
+          '<div class="wp-pick">' +
+            '<div class="wp-pick-bar">' +
+              '<input class="wp-in" id="ra-q" placeholder="Search country or ISO code">' +
+              '<span class="wp-link" id="ra-all">Select all</span>' +
+              '<span class="wp-link" id="ra-none">Clear</span>' +
+            '</div>' +
+            '<div class="wp-pick-list" id="ra-list"></div>' +
+            '<div class="wp-chips" id="ra-chips"></div>' +
+          '</div>' +
+        '</div>' +
+
+      '</div>' +
+      '<div class="wp-mod-foot">' +
+        '<div id="ra-cost" class="wp-cost" style="margin-right:auto;align-self:center"></div>' +
+        '<span class="wp-btn" id="ra-cancel">Cancel</span>' +
+        '<span class="wp-btn primary" id="ra-ok">Add rule</span>' +
+      '</div>' +
+      '</div>';
+
+    var idx = layer.open({
+      type: 1, title: false, closeBtn: 1, shadeClose: true,
+      area: ['720px', '620px'], content: h
+    });
+
+    function shown() {
+      return S.regAll.filter(function (x) {
+        return !q || x.name.toLowerCase().indexOf(q) >= 0 || x.code.toLowerCase().indexOf(q) >= 0;
+      });
+    }
+    function drawList() {
+      var rows = shown();
+      $('#ra-list').html(rows.length ? rows.map(function (x) {
+        return '<label class="wp-ctry' + (sel[x.code] ? ' on' : '') + '" data-c="' + x.code + '">' +
+          '<input type="checkbox" class="ra-c" data-c="' + x.code + '"' + (sel[x.code] ? ' checked' : '') + '>' +
+          '<span class="n">' + esc(x.name) + ' <span class="c">(' + x.code + ')</span></span>' +
+          '<span class="k">' + num(x.cidr) + '</span></label>';
+      }).join('') : '<div style="padding:26px;text-align:center;color:var(--wp-text3)">No match for "' + esc(q) + '"</div>');
+    }
+    function drawChips() {
+      var keys = Object.keys(sel);
+      if (!keys.length) {
+        $('#ra-chips').html('<span style="color:var(--wp-text3);font-size:12px">No area selected yet</span>');
+      } else {
+        var by = {};
+        S.regAll.forEach(function (x) { by[x.code] = x; });
+        $('#ra-chips').html(keys.map(function (c) {
+          return '<span class="wp-chip2"><b>' + esc((by[c] && by[c].name) || c) + '</b>' +
+            '<i class="ra-x" data-c="' + c + '">&times;</i></span>';
+        }).join(''));
+      }
+      var cidr = S.regAll.reduce(function (a, x) { return a + (sel[x.code] ? x.cidr : 0); }, 0);
+      var warn = cidr > REG_WARN_CIDR;
+      // The engine binary-searches these ranges, but the panel still has to
+      // compile and ship them — worth showing before someone picks the US.
+      $('#ra-cost').attr('class', 'wp-cost' + (warn ? ' warn' : ''))
+        .html(keys.length ? ('<b>' + keys.length + '</b> selected · <b>' + num(cidr) + '</b> CIDR' +
+          (warn ? ' — large list, compiles slower' : '')) : '');
+    }
+    function draw() { drawList(); drawChips(); }
+    draw();
+
+    $('#ra-q').on('input', function () { q = ($(this).val() || '').toLowerCase(); drawList(); });
+    $('#ra-list').on('change', '.ra-c', function () {
+      var c = $(this).data('c');
+      if (this.checked) sel[c] = 1; else delete sel[c];
+      $(this).closest('.wp-ctry').toggleClass('on', this.checked);
+      drawChips();
+    });
+    $('#ra-chips').on('click', '.ra-x', function () {
+      delete sel[$(this).data('c')];
+      draw();
+    });
+    $('#ra-all').on('click', function () {
+      shown().forEach(function (x) { sel[x.code] = 1; });   // only what the filter shows
+      draw();
+    });
+    $('#ra-none').on('click', function () { sel = {}; draw(); });
+    $('.wp-seg input').on('change', function () {
+      $('.wp-seg label').removeClass('on');
+      $(this).closest('label').addClass('on');
+    });
+    $('#ra-cancel').on('click', function () { layer.close(idx); });
+    $('#ra-ok').on('click', function () {
+      var areas = Object.keys(sel);
+      if (!areas.length) return layer.msg('Select at least one area', { icon: 2 });
+      var $b = $(this);
+      if ($b.data('busy')) return;
+      $b.data('busy', 1).text('Adding...');
+      post('region_rule_add', {
+        areas: JSON.stringify(areas), site: $('#ra-site').val(),
+        type: $('.wp-seg input:checked').val(), status_code: $('#ra-code').val()
+      }, function (rr) {
+        layer.msg(rr.msg, { icon: rr.status ? 1 : 2 });
+        if (rr.status) { layer.close(idx); route(); }
+        else $b.data('busy', 0).text('Add rule');
+      });
+    });
+  }
+  /* Global = engine-wide settings only. The per-filter switches (GET/POST/
+     cookie/UA/scan/CC) are per site and live on the WebSite tab. */
+  var STATUS_OPTS = [
+    { code: 444, name: '444 Close connection' },
+    { code: 403, name: '403 Access denied' },
+    { code: 404, name: '404 File not exist' },
+    { code: 503, name: '503 Server unavailable' },
+    { code: 405, name: '405 Method not allowed' }
+  ];
+  function statusSel(id, val) {
+    return '<select class="wp-in" id="' + id + '" style="width:200px">' + STATUS_OPTS.map(function (s) {
+      return '<option value="' + s.code + '"' + (s.code === val ? ' selected' : '') + '>' + s.name + '</option>';
+    }).join('') + '</select>';
+  }
+
+  /* ================= TRAFFIC LIMIT =================
+     Per-URL rate limiting, lowest priority. One rule per row, same table
+     language as Region. Built for API endpoints, not whole sites. */
+  var TL_STATUS = [
+    { code: 503, name: '503 (Service Unavailable)' },
+    { code: 502, name: '502 (Connection Timeout)' },
+    { code: 444, name: '444 (Close connection)' },
+    { code: 403, name: '403 (Access denied)' }
+  ];
+  function tlTrigger(t) {
+    var who = t.dim === 'ipua' ? 'Single IP + UA' : 'Single IP';
+    return 'At <b>' + who + '</b> accessing <b>' + esc(t.url) + '</b> more than <b>' +
+      t.rate + '</b> times per second, traffic restriction is triggered';
+  }
+  function tlAction(t) {
+    if (t.action === 'block') return 'Intercept (Block IP)';
+    var n = { 503: 'Service Unavailable', 502: 'Connection Timeout',
+              444: 'Close connection', 403: 'Access denied' }[t.status] || '';
+    return 'Status Code ' + t.status + (n ? ' (' + n + ')' : '');
+  }
+
+  function pageTraffic() {
+    $('#wp-body').html('<div class="wp-loading">Loading...</div>');
+    post('traffic_rules', {}, function (r) {
+      if (!r.status) { $('#wp-body').html('<div class="wp-note">' + esc(r.msg || 'error') + '</div>'); return; }
+      S.tlMeta = r;
+      renderTraffic(r);
+    });
+  }
+
+  function renderTraffic(r) {
+    var e = r.engine || {};
+    var h = '';
+    if (!e.wired) {
+      h += '<div class="wp-note" style="margin-bottom:12px">' + icoWarn() +
+        ' The engine is not wired into nginx, so these rules are stored but not enforced.</div>';
+    }
+    h += '<div class="wp-card">';
+    h += '<div style="margin-bottom:14px"><span class="wp-btn primary" id="tl-add">Add Restriction</span></div>';
+    h += '<table class="wp-tbl"><thead><tr>' +
+      '<th style="width:130px">Rule Name</th>' +
+      '<th style="width:170px">Website Name</th>' +
+      '<th>Trigger Condition</th>' +
+      '<th style="width:230px">Execute Action</th>' +
+      '<th style="width:60px">Status</th>' +
+      '<th style="width:100px">Operate</th></tr></thead><tbody>';
+    if (!r.rules.length) {
+      h += '<tr><td colspan="6" style="padding:26px;text-align:center;color:var(--wp-text3)">No traffic restriction yet.</td></tr>';
+    } else {
+      h += r.rules.map(function (t) {
+        return '<tr data-id="' + t.id + '">' +
+          '<td style="color:var(--wp-text);font-weight:600">' + esc(t.name) + '</td>' +
+          '<td class="ell" title="' + esc(t.site) + '">' + esc(t.site) + '</td>' +
+          '<td style="color:var(--wp-text2)">' + tlTrigger(t) + '</td>' +
+          '<td>' + tlAction(t) + '</td>' +
+          '<td><label class="wp-sw"><input type="checkbox" class="tl-on"' + (t.open ? ' checked' : '') +
+          '><span class="sl"></span></label></td>' +
+          '<td><a href="javascript:;" class="tl-edit" style="color:var(--wp-green)">Edit</a> ' +
+          '<span style="color:var(--wp-border)">|</span> ' +
+          '<a href="javascript:;" class="tl-del" style="color:var(--wp-green)">Delete</a></td></tr>';
+      }).join('');
+    }
+    h += '</tbody></table>';
+    h += '<ul class="wp-notes">' +
+      '<li>The priority of traffic restrictions is the lowest.</li>' +
+      '<li>Traffic restrictions are generally used for API endpoints; enabling them for a whole site is not recommended.</li>' +
+      '<li>The suggested return type is 503 or 502.</li>' +
+      '<li>Loopback and LAN addresses are never rate-limited.</li>' +
+      '</ul>';
+    h += '</div>';
+    $('#wp-body').html(h);
+
+    $('#tl-add').on('click', function () { tlDialog(null); });
+    $('#wp-body').on('click', '.tl-edit', function () {
+      var id = $(this).closest('tr').data('id');
+      tlDialog(r.rules.filter(function (x) { return x.id === id; })[0]);
+    });
+    $('#wp-body').on('change', '.tl-on', function () {
+      var id = $(this).closest('tr').data('id'), on = $(this).is(':checked');
+      post('traffic_toggle', { id: id, open: on ? 1 : 0 }, function (rr) {
+        layer.msg(rr.msg, { icon: rr.status ? 1 : 2 });
+      });
+    });
+    $('#wp-body').on('click', '.tl-del', function () {
+      var id = $(this).closest('tr').data('id');
+      layer.confirm('Delete this traffic restriction?', function (i) {
+        layer.close(i);
+        post('traffic_del', { id: id }, function (rr) {
+          layer.msg(rr.msg, { icon: rr.status ? 1 : 2 });
+          if (rr.status) route();
+        });
+      });
+    });
+  }
+
+  function tlDialog(rule) {
+    var r = S.tlMeta, edit = !!rule;
+    rule = rule || { name: '', site: '', url: '', dim: 'ip', rate: 20, action: 'status', status: 503 };
+    var sites = (r.sites || []).map(function (s) {
+      return '<option value="' + esc(s) + '"' + (s === rule.site ? ' selected' : '') + '>' + esc(s) + '</option>';
+    }).join('');
+    var codes = TL_STATUS.map(function (s) {
+      return '<option value="' + s.code + '"' + (s.code === rule.status ? ' selected' : '') + '>' + s.name + '</option>';
+    }).join('');
+
+    var h = '<div class="wp-modal">' +
+      '<div class="wp-mod-head">' +
+        '<div class="wp-mod-site">' + (edit ? 'Edit' : 'Add') + ' Traffic Restriction</div>' +
+        '<div class="wp-mod-meta">Rate-limit one URL per IP. Meant for API endpoints, not whole sites.</div>' +
+      '</div>' +
+      '<div class="wp-mod-body">' +
+        '<div class="wp-mod-sec"><div class="wp-mod-sec-t">Scope</div>' +
+          '<div class="wp-mod-row"><div class="wp-mod-lbl">Rule name</div>' +
+            '<div class="wp-mod-ctl"><input class="wp-in" id="tl-name" style="min-width:250px" value="' + esc(rule.name) + '" placeholder="e.g. api_login"></div>' +
+            '<div class="wp-mod-hint">Just a label.</div></div>' +
+          '<div class="wp-mod-row"><div class="wp-mod-lbl">Website</div>' +
+            '<div class="wp-mod-ctl"><select class="wp-in" id="tl-site" style="min-width:250px">' + sites + '</select></div>' +
+            '<div class="wp-mod-hint"></div></div>' +
+          '<div class="wp-mod-row"><div class="wp-mod-lbl">URL pattern</div>' +
+            '<div class="wp-mod-ctl"><input class="wp-in" id="tl-url" style="min-width:250px" value="' + esc(rule.url) + '" placeholder="/api/login"></div>' +
+            '<div class="wp-mod-hint">Matched as a regex against the request URI.</div></div>' +
+        '</div>' +
+        '<div class="wp-mod-sec"><div class="wp-mod-sec-t">Trigger</div>' +
+          '<div class="wp-mod-row"><div class="wp-mod-lbl">Count by</div>' +
+            '<div class="wp-mod-ctl"><select class="wp-in" id="tl-dim" style="min-width:250px">' +
+              '<option value="ip"' + (rule.dim === 'ip' ? ' selected' : '') + '>Single IP</option>' +
+              '<option value="ipua"' + (rule.dim === 'ipua' ? ' selected' : '') + '>Single IP + User-Agent</option>' +
+            '</select></div>' +
+            '<div class="wp-mod-hint">IP+UA counts each browser separately behind one IP.</div></div>' +
+          '<div class="wp-mod-row"><div class="wp-mod-lbl">Rate</div>' +
+            '<div class="wp-mod-ctl">more than <input class="wp-in" id="tl-rate" type="number" style="width:90px" value="' + rule.rate + '"> requests / second</div>' +
+            '<div class="wp-mod-hint"></div></div>' +
+        '</div>' +
+        '<div class="wp-mod-sec"><div class="wp-mod-sec-t">Action</div>' +
+          '<div class="wp-mod-row"><div class="wp-mod-lbl">When triggered</div>' +
+            '<div class="wp-mod-ctl"><select class="wp-in" id="tl-action" style="min-width:250px">' +
+              '<option value="status"' + (rule.action === 'status' ? ' selected' : '') + '>Return a status code</option>' +
+              '<option value="block"' + (rule.action === 'block' ? ' selected' : '') + '>Intercept (block the IP)</option>' +
+            '</select></div>' +
+            '<div class="wp-mod-hint"></div></div>' +
+          '<div class="wp-mod-row" id="tl-code-row"><div class="wp-mod-lbl">Status code</div>' +
+            '<div class="wp-mod-ctl"><select class="wp-in" id="tl-code" style="min-width:250px">' + codes + '</select></div>' +
+            '<div class="wp-mod-hint">503 or 502 recommended.</div></div>' +
+        '</div>' +
+      '</div>' +
+      '<div class="wp-mod-foot">' +
+        '<span class="wp-btn" id="tl-cancel">Cancel</span>' +
+        '<span class="wp-btn primary" id="tl-ok">' + (edit ? 'Save' : 'Add') + '</span>' +
+      '</div></div>';
+
+    var idx = layer.open({ type: 1, title: false, closeBtn: 1, area: ['680px', '620px'], content: h });
+
+    function syncCode() { $('#tl-code-row').css('display', $('#tl-action').val() === 'block' ? 'none' : ''); }
+    syncCode();
+    $('#tl-action').on('change', syncCode);
+    $('#tl-cancel').on('click', function () { layer.close(idx); });
+    $('#tl-ok').on('click', function () {
+      var payload = {
+        name: $('#tl-name').val(), site: $('#tl-site').val(), url: $('#tl-url').val(),
+        dim: $('#tl-dim').val(), rate: $('#tl-rate').val(),
+        action: $('#tl-action').val(), status_code: $('#tl-code').val()
+      };
+      if (edit) payload.id = rule.id;
+      post(edit ? 'traffic_edit' : 'traffic_add', payload, function (rr) {
+        layer.msg(rr.msg, { icon: rr.status ? 1 : 2 });
+        if (rr.status) { layer.close(idx); route(); }
+      });
+    });
+  }
+  function pageGlobal() {
+    $('#wp-body').html('<div class="wp-loading">Loading...</div>');
+    post('get_config', {}, function (c) {
+      if (!c.status) { $('#wp-body').html('<div class="wp-note">' + esc(c.msg || 'error') + '</div>'); return; }
+      post('get_methods', {}, function (m) {
+        post('get_hdr_limits', {}, function (hl) {
+          post('spider_status', {}, function (sp) {
+            post('malicious_status', {}, function (ml) {
+              post('list_get', { list_name: 'sensitive' }, function (senList) {
+                renderGlobal(c, m, hl, sp, ml, senList);
+              });
+            });
+          });
+        });
+      });
+    });
+  }
+
+  // one grouped card: shown only when its sub-tab (or All) is active
+  function gcard(group, ico, title, inner) {
+    return '<div class="wp-gc" data-g="' + group + '">' +
+      '<div class="wp-card" style="max-width:820px;margin-top:14px"><div class="wp-card-h">' +
+      ico + '<span class="t">' + title + '</span></div>' + inner + '</div></div>';
+  }
+
+  // section header + feature cards, so each setting reads as its own row
+  function gsec(group, text) {
+    return '<div class="wp-gc" data-g="' + group + '"><div class="wp-gsec">' + text + '</div></div>';
+  }
+  function fcard(group, title, desc, controls, body, hero) {
+    var head = '<div style="display:flex;align-items:center;gap:20px">' +
+      '<div class="wp-fc-l"><div class="wp-fc-t">' + title + '</div>' +
+      (desc ? '<div class="wp-fc-d">' + desc + '</div>' : '') + '</div>' +
+      '<div class="wp-fc-r">' + (controls || '') + '</div></div>';
+    return '<div class="wp-gc" data-g="' + group + '">' +
+      '<div class="wp-fc' + (hero ? ' hero' : '') + (body ? ' wp-fc-col' : '') + '">' +
+      head + (body ? '<div class="wp-fc-body">' + body + '</div>' : '') + '</div></div>';
+  }
+
+  function renderGlobal(c, m, hl, sp, ml, senList) {
+    var e = c.engine || {};
+    S.gSub = S.gSub || 'all';
+    var SUBS = [['all', 'All'], ['cc', 'CC defense'], ['access', 'Access filter'],
+                ['vuln', 'Website vulnerability defense'], ['sensitive', 'Sensitive words']];
+
+    var h = '<div class="wp-subtabs" id="g-subs">' + SUBS.map(function (x) {
+      return '<span class="wp-subtab' + (x[0] === S.gSub ? ' on' : '') + '" data-g="' + x[0] + '">' + x[1] + '</span>';
+    }).join('') + '</div>';
+    h += '<div id="g-cards" style="max-width:1080px">';
+
+    if (!e.wired) {
+      h += '<div class="wp-gc" data-g="all"><div class="wp-note" style="margin-top:12px">' + icoWarn() +
+        ' The engine is not wired into nginx, so nothing here is enforced yet.</div></div>';
+    }
+
+    /* ===== Global ===== */
+    h += gsec('all', 'Global');
+    h += fcard('all', 'Protection switch', 'All protection is off when this switch is off.',
+      sw('g-open', c.open) +
+      '<span class="wp-btn" id="g-export">Export</span>' +
+      '<span class="wp-btn" id="g-import">Import</span>' +
+      '<span class="wp-btn" id="g-restore">Restore defaults</span>', '', true);
+    h += fcard('all', 'Engine wired into nginx',
+      'Installs our lua into nginx. Tested before apply, rolled back on failure.',
+      sw('g-wired', e.wired));
+
+    /* ===== CC defense ===== */
+    h += gsec('cc', 'CC defense');
+    h += fcard('cc', 'Request defence (auto-ban)',
+      'An IP that trips too many rules is blocked outright for a while. Banned IPs show under Blockade.',
+      '<span class="wp-btn" id="g-save-ab">Set rule</span>',
+      '<div style="display:flex;flex-wrap:wrap;gap:16px;align-items:center">' +
+        '<span>Ban after <input class="wp-in" id="g-retry" type="number" style="width:70px" value="' + (c.retry || 0) +
+        '"> trips within <input class="wp-in" id="g-retry-cycle" type="number" style="width:70px" value="' + (c.retry_cycle || 60) + '"> s</span>' +
+        '<span>Ban duration <input class="wp-in" id="g-retry-time" type="number" style="width:80px" value="' + (c.retry_time || 600) + '"> s</span>' +
+      '</div>');
+    h += fcard('cc', 'Static file protection',
+      'CC does not count static files (JS, CSS, images, fonts) by default — a page pulls many. Turn on only if static traffic is being abused.',
+      sw('g-static', c.static_protect));
+    var mhave = ml && ml.have;
+    h += fcard('cc', 'Malicious IP feed',
+      'Public abuse feeds (botnets, repeat attackers). When on, blocked on every site. ' +
+      (mhave ? num(ml.count) + ' ranges, updated ' + esc(ml.updated) : '<span style="color:var(--wp-red)">not downloaded</span>'),
+      sw('g-mal', ml && ml.open) + '<span class="wp-btn" id="g-mal-update">' + (mhave ? 'Synchronize' : 'Download') + '</span>');
+    var have = sp && sp.have;
+    h += fcard('cc', 'Verified crawlers',
+      'Backs the Fake spider switch on each site. ' +
+      (have ? '<b>' + num(sp.count) + '</b> ranges from ' + esc((sp.sources || []).join(', ')) + ', updated ' + esc(sp.updated)
+            : '<span style="color:var(--wp-red)">not downloaded — Fake spider does nothing</span>'),
+      '<span class="wp-btn" id="g-spider">' + (have ? 'Synchronize' : 'Download') + '</span>');
+
+    /* ===== Access filter ===== */
+    h += gsec('access', 'Access filter');
+    h += fcard('access', 'Logging', 'Write blocks to /www/wwwlogs/wafpro/.',
+      'Keep <input class="wp-in" id="g-logsave" type="number" style="width:64px" value="' + (c.log_save || 30) + '"> days' +
+      sw('g-log', c.log) + '<span class="wp-btn" id="g-save-log">Save</span>');
+    h += fcard('access', 'Behind CDN',
+      'Read the visitor IP from X-Forwarded-For. Only if a proxy really sits in front — otherwise IPs can be spoofed.',
+      sw('g-cdn', c.cdn));
+    var allM = (m && m.all) || [];
+    var onM = {}; ((m && m.data) || []).forEach(function (x) { onM[x] = 1; });
+    h += fcard('access', 'Allowed HTTP methods', 'Anything unchecked is refused. GET cannot be turned off.',
+      '<span class="wp-btn primary" id="g-save-m">Save</span>',
+      '<div style="display:flex;flex-wrap:wrap;gap:16px">' + allM.map(function (x) {
+        return '<label style="display:flex;align-items:center;gap:6px;cursor:pointer">' +
+          '<input type="checkbox" class="g-m" value="' + x + '"' + (onM[x] ? ' checked' : '') +
+          (x === 'GET' ? ' disabled' : '') + '>' + x + '</label>';
+      }).join('') + '</div>');
+    var lims = (hl && hl.data) || [];
+    h += fcard('access', 'Header size limits', 'Requests with a header longer than this are refused.',
+      '<span class="wp-btn primary" id="g-save-h">Save</span>',
+      '<div style="display:flex;flex-wrap:wrap;gap:20px">' + lims.map(function (x) {
+        return '<label style="display:flex;align-items:center;gap:8px">' + esc(x.h) +
+          '<input class="wp-in g-h" data-h="' + esc(x.h) + '" type="number" style="width:90px" value="' + x.max + '"> B</label>';
+      }).join('') + '</div>');
+
+    /* ===== Website vulnerability defense ===== */
+    h += gsec('vuln', 'Website vulnerability defense');
+    var rcRow = function (id, label, val) {
+      return '<label style="display:flex;align-items:center;gap:8px">' +
+        '<span style="width:130px;color:var(--wp-text2)">' + label + '</span>' + statusSel(id, val) + '</label>';
+    };
+    h += fcard('vuln', 'Response codes', 'What blocked visitors receive, per protection type.',
+      '<span class="wp-btn primary" id="g-save">Save</span>',
+      '<div style="display:grid;grid-template-columns:1fr 1fr;gap:12px 30px">' +
+        rcRow('g-s-get', 'SQL/XSS query', c.get_status) + rcRow('g-s-post', 'SQL/XSS body', c.post_status) +
+        rcRow('g-s-cookie', 'Cookie', c.cookie_status) + rcRow('g-s-ua', 'User-Agent', c.ua_status) +
+        rcRow('g-s-scan', 'Scanner paths', c.scan_status) + rcRow('g-s-cc', 'CC defense', c.cc_status) +
+        rcRow('g-s-black', 'Blacklist / ban', c.black_status) + rcRow('g-s-method', 'Bad method', c.method_status) +
+        rcRow('g-s-header', 'Oversized header', c.header_status) +
+      '</div>');
+
+    /* ===== Sensitive words ===== */
+    h += gsec('sensitive', 'Sensitive words');
+    var words = (senList && senList.data) || [];
+    h += fcard('sensitive', 'Sensitive words',
+      'A request is blocked if any appears in its URL, query string or form body. Plain text or regex.',
+      '', '<div style="display:flex;gap:8px;margin-bottom:12px">' +
+        '<input class="wp-in" id="g-sen-in" placeholder="word or regex, e.g. (?i)union\\s+select" style="flex:1">' +
+        '<span class="wp-btn primary" id="g-sen-add">Add</span></div>' +
+      '<table class="wp-tbl"><thead><tr><th>Word / pattern</th><th style="width:80px">Operate</th></tr></thead><tbody>' +
+      (words.length ? words.map(function (x) {
+        return '<tr><td style="font-family:ui-monospace,Menlo,monospace;font-size:12px;word-break:break-all">' + esc(x.value) + '</td>' +
+          '<td><a href="javascript:;" class="g-sen-del" data-i="' + x.index + '" style="color:var(--wp-green)">Delete</a></td></tr>';
+      }).join('') : '<tr><td colspan="2" style="padding:20px;text-align:center;color:var(--wp-text3)">No sensitive words yet.</td></tr>') +
+      '</tbody></table>');
+
+    h += '</div>';
+    $('#wp-body').html(h);
+    applyGSub();
+
+    $('#g-subs .wp-subtab').on('click', function () {
+      S.gSub = $(this).data('g');
+      $('#g-subs .wp-subtab').removeClass('on'); $(this).addClass('on');
+      applyGSub();
+    });
+
+    /* ---- handlers ---- */
+    function wire(on) { post('engine_wire', { open: on ? 1 : 0 }, function (rr) { layer.msg(rr.msg, { icon: rr.status ? 1 : 2 }); route(); }); }
+    $('#g-wired').on('change', function () { wire($(this).is(':checked')); });
+    function saveCore(extra) {
+      var cfg = { open: $('#g-open').is(':checked'), log: $('#g-log').is(':checked'),
+        log_save: parseInt($('#g-logsave').val() || 30, 10), cdn: $('#g-cdn').is(':checked'),
+        static_protect: $('#g-static').is(':checked') };
+      post('save_config', { config: JSON.stringify($.extend(cfg, extra || {})) },
+        function (rr) { layer.msg(rr.msg, { icon: rr.status ? 1 : 2 }); });
+    }
+    $('#g-open,#g-cdn,#g-static').on('change', function () { saveCore(); });
+    $('#g-save-log').on('click', function () { saveCore(); });
+    $('#g-save-ab').on('click', function () {
+      saveCore({ retry: parseInt($('#g-retry').val() || 0, 10),
+                 retry_cycle: parseInt($('#g-retry-cycle').val() || 60, 10),
+                 retry_time: parseInt($('#g-retry-time').val() || 600, 10) });
+    });
+    $('#g-save').on('click', function () {
+      saveCore({ get_status: +$('#g-s-get').val(), post_status: +$('#g-s-post').val(),
+        cookie_status: +$('#g-s-cookie').val(), ua_status: +$('#g-s-ua').val(),
+        scan_status: +$('#g-s-scan').val(), cc_status: +$('#g-s-cc').val(),
+        black_status: +$('#g-s-black').val(), method_status: +$('#g-s-method').val(),
+        header_status: +$('#g-s-header').val() });
+    });
+    $('#g-save-m').on('click', function () {
+      var ms = ['GET'];
+      $('.g-m:checked').each(function () { if (this.value !== 'GET') ms.push(this.value); });
+      post('save_methods', { methods: JSON.stringify(ms) }, function (rr) { layer.msg(rr.msg, { icon: rr.status ? 1 : 2 }); });
+    });
+    $('#g-save-h').on('click', function () {
+      var out = [];
+      $('.g-h').each(function () { out.push({ h: $(this).data('h'), max: parseInt($(this).val() || 0, 10) }); });
+      post('save_hdr_limits', { limits: JSON.stringify(out) }, function (rr) { layer.msg(rr.msg, { icon: rr.status ? 1 : 2 }); });
+    });
+    $('#g-mal').on('change', function () {
+      var on = $(this).is(':checked');
+      post('malicious_toggle', { open: on ? 1 : 0 }, function (rr) { layer.msg(rr.msg, { icon: rr.status ? 1 : 2 }); if (!rr.status) $('#g-mal').prop('checked', !on); });
+    });
+    $('#g-mal-update').on('click', function () { var $b = $(this).text('...'); post('malicious_update', {}, function (rr) { layer.msg(rr.msg, { icon: rr.status ? 1 : 2 }); if (rr.status) route(); else $b.text('Synchronize'); }); });
+    $('#g-spider').on('click', function () { var $b = $(this).text('...'); post('spider_update', {}, function (rr) { layer.msg(rr.msg, { icon: rr.status ? 1 : 2 }); if (rr.status) route(); else $b.text('Synchronize'); }); });
+
+    function senAdd() {
+      var v = ($('#g-sen-in').val() || '').trim(); if (!v) return;
+      post('list_add', { list_name: 'sensitive', value: v }, function (rr) { layer.msg(rr.msg, { icon: rr.status ? 1 : 2 }); if (rr.status) route(); });
+    }
+    $('#g-sen-add').on('click', senAdd);
+    $('#g-sen-in').on('keydown', function (ev) { if (ev.keyCode === 13) senAdd(); });
+    $('#g-cards').on('click', '.g-sen-del', function () {
+      post('list_del', { list_name: 'sensitive', index: $(this).data('i') }, function (rr) { layer.msg(rr.msg, { icon: rr.status ? 1 : 2 }); if (rr.status) route(); });
+    });
+
+    $('#g-export').on('click', function () {
+      post('export_config', {}, function (rr) {
+        if (!rr.status) return layer.msg(rr.msg || 'error', { icon: 2 });
+        var blob = new Blob([JSON.stringify(rr.data, null, 2)], { type: 'application/json' });
+        var a = document.createElement('a'); a.href = URL.createObjectURL(blob); a.download = rr.filename || 'wafpro-config.json';
+        document.body.appendChild(a); a.click(); document.body.removeChild(a); layer.msg('Config exported', { icon: 1 });
+      });
+    });
+    $('#g-import').on('click', function () {
+      var inp = document.createElement('input'); inp.type = 'file'; inp.accept = '.json,application/json';
+      inp.onchange = function () {
+        var f = inp.files[0]; if (!f) return;
+        var rd = new FileReader();
+        rd.onload = function () { post('import_config', { data: rd.result }, function (rr) { layer.msg(rr.msg, { icon: rr.status ? 1 : 2 }); if (rr.status) route(); }); };
+        rd.readAsText(f);
+      };
+      inp.click();
+    });
+    $('#g-restore').on('click', function () {
+      layer.confirm('Restore every WAF Pro setting to defaults? This cannot be undone.', { icon: 3, title: 'Restore defaults' }, function (i) {
+        layer.close(i);
+        post('restore_config', {}, function (rr) { layer.msg(rr.msg, { icon: rr.status ? 1 : 2 }); if (rr.status) route(); });
+      });
+    });
+  }
+
+  function applyGSub() {
+    $('#g-cards .wp-gc').each(function () {
+      $(this).css('display', (S.gSub === 'all' || $(this).data('g') === S.gSub) ? '' : 'none');
+    });
+  }
+
+  function row(label, ctrl, tip) {
+    return '<div style="display:flex;align-items:center;gap:14px;padding:11px 0">' +
+      '<div style="width:150px;color:var(--wp-text2);text-align:right;flex:none">' + label + '</div>' +
+      '<div style="flex:none">' + ctrl + '</div>' +
+      (tip ? '<div style="color:var(--wp-text3);font-size:12px">' + tip + '</div>' : '') + '</div>';
+  }
+  function sw(id, on) {
+    return '<label class="wp-sw"><input type="checkbox" id="' + id + '"' + (on ? ' checked' : '') + '><span class="sl"></span></label>';
+  }
+
+  /* ---------- inline icons ---------- */
+  function icoFilter() { return '<svg class="wp-ico" viewBox="0 0 24 24"><path d="M3 5h18l-7 8v6l-4 2v-8z"/></svg>'; }
+  function icoPulse() { return '<svg class="wp-ico" viewBox="0 0 24 24"><path d="M3 12h4l3-8 4 16 3-8h4"/></svg>'; }
+  function icoShield() { return '<svg class="wp-ico" viewBox="0 0 24 24"><path d="M12 3l8 3v6c0 5-3.5 8-8 9-4.5-1-8-4-8-9V6z"/></svg>'; }
+  function icoWarn() { return '<svg class="wp-ico" viewBox="0 0 24 24"><path d="M12 4l9 16H3z"/><path d="M12 10v4M12 17h.01"/></svg>'; }
+  function icoChart() { return '<svg class="wp-ico" viewBox="0 0 24 24"><path d="M4 20V10M10 20V4M16 20v-7M22 20H2"/></svg>'; }
+  function icoDoc() { return '<svg class="wp-ico" viewBox="0 0 24 24"><path d="M6 3h8l4 4v14H6z"/><path d="M14 3v4h4"/></svg>'; }
+  function icoPie() { return '<svg class="wp-ico" viewBox="0 0 24 24"><path d="M12 3v9h9"/><circle cx="12" cy="12" r="9"/></svg>'; }
+  function icoClock() { return '<svg class="wp-ico" viewBox="0 0 24 24"><circle cx="12" cy="12" r="9"/><path d="M12 7v5l3 2"/></svg>'; }
+  function icoGlobe() { return '<svg class="wp-ico" viewBox="0 0 24 24"><circle cx="12" cy="12" r="9"/><path d="M3 12h18M12 3c3 3 3 15 0 18M12 3c-3 3-3 15 0 18"/></svg>'; }
+  function svgBugBg() {
+    return '<svg class="bg" viewBox="0 0 24 24"><path d="M9 8V6a3 3 0 016 0v2"/><rect x="7" y="8" width="10" height="11" rx="5"/><path d="M3 13h4M17 13h4M4 19l3.5-2M20 19l-3.5-2"/></svg>';
+  }
+  function svgShieldBg() {
+    return '<svg class="bg" viewBox="0 0 24 24"><path d="M12 3l8 3v6c0 5-3.5 8-8 9-4.5-1-8-4-8-9V6z"/><path d="M12 8v5M12 16h.01"/></svg>';
+  }
+
+  /* ---------- boot ---------- */
+  window.addEventListener('resize', widen);
+  setTimeout(widen, 60); setTimeout(widen, 300); setTimeout(widen, 900);
+  renderTabs();
+  route();
+})();
+</script>
