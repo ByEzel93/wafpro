@@ -56,12 +56,18 @@ one dashboard:
 
 ## Install
 
-1. Copy the `wafpro` folder to `/www/server/panel/plugin/wafpro/`, **or** zip it
-   and install via the aaPanel App Store (custom plugin).
-2. Open the plugin and, on the **Global** tab, turn on **Engine wired into
+1. Download the latest **`wafpro-x.x.zip`** from the
+   [Releases page](https://github.com/ByEzel93/wafpro/releases).
+   > Use the `wafpro-x.x.zip` attached to the release, **not** GitHub's
+   > auto-generated "Source code" zip — only the attached one unpacks to the
+   > `wafpro/` folder aaPanel expects.
+2. In aaPanel, go to **App Store → find a plugin / third-party** and upload the
+   zip as a custom plugin. (Or unzip it straight into
+   `/www/server/panel/plugin/` so you get `/www/server/panel/plugin/wafpro/`.)
+3. Open the plugin and, on the **Global** tab, turn on **Engine wired into
    nginx**. This installs the lua config into nginx after testing it with
    `nginx -t` (it rolls back automatically if the test fails).
-3. Enable protection per site on the **Website** tab.
+4. Enable protection per site on the **Website** tab.
 
 The installer never edits a running nginx config without a successful `nginx -t`
 first, and backs up before changing anything.
