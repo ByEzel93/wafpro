@@ -1,0 +1,29 @@
+# Python bytecode
+__pycache__/
+*.py[cod]
+*$py.class
+
+# Runtime data written on the target server (never part of the source)
+cache/
+export/
+rules/
+countries.json
+custom_rules.json
+region_rules.json
+traffic_rules.json
+methods.json
+hdr_limits.json
+map_location.json
+remarks.json
+spiders.json
+malicious.json
+*.json.bak
+
+# macOS
+.DS_Store
+
+# Editors
+.vscode/
+.idea/
+*.swp
+*~

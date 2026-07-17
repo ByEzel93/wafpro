@@ -371,12 +371,14 @@
   /* ---------- tabs ---------- */
   var TABS = [
     { id: 'overview', t: 'Overview' },
-    { id: 'website', t: 'WebSite' },
+    { id: 'website', t: 'Website' },
     { id: 'blockade', t: 'Blockade' },
-    { id: 'lists', t: 'Black/White list' },
-    { id: 'rules', t: 'Custom rules' },
+    { id: 'lists', t: 'Black/White List' },
     { id: 'region', t: 'Region' },
-    { id: 'traffic', t: 'Traffic Limit' },
+    { id: 'traffic', t: 'Traffic' },
+    { id: 'rules', t: 'Custom Rules' },
+    { id: 'attackmap', t: 'Attack Map' },
+    { id: 'report', t: 'Report' },
     { id: 'global', t: 'Global' }
   ];
   function renderTabs() {
@@ -402,6 +404,8 @@
     if (S.tab === 'rules') return pageRules();
     if (S.tab === 'region') return pageRegion();
     if (S.tab === 'traffic') return pageTraffic();
+    if (S.tab === 'attackmap') return pageAttackMap();
+    if (S.tab === 'report') return pageReport();
     if (S.tab === 'global') return pageGlobal();
   }
 
@@ -2160,6 +2164,369 @@
         if (rr.status) { layer.close(idx); route(); }
       });
     });
+  }
+  /* ================= ATTACK MAP =================
+     World map with animated lines from each attacker's location to the
+     server (Local IP). Uses the panel's world.json + ECharts lines/effect. */
+  function pageAttackMap() {
+    $('#wp-body').html('<div class="wp-loading">Loading...</div>');
+    post('attack_map', { date: 'today' }, function (r) {
+      if (!r.status) { $('#wp-body').html('<div class="wp-note">' + esc(r.msg || 'error') + '</div>'); return; }
+      S.amData = r;
+      renderAttackMap(r);
+    });
+  }
+
+  function renderAttackMap(r) {
+    var sv = r.server || {};
+    var h = '<div class="wp-card" style="padding:0;overflow:hidden">';
+    h += '<div style="display:flex;align-items:center;gap:14px;padding:12px 16px;border-bottom:1px solid var(--wp-border);flex-wrap:wrap">' +
+      '<span style="font-weight:600;color:var(--wp-text)">Attack map</span>' +
+      '<span style="color:var(--wp-text3);font-size:12px">(map for reference only)</span>' +
+      '<span style="color:var(--wp-text2);font-size:13px">Longitude: <b id="am-lon">' + (sv.lon != null ? (+sv.lon).toFixed(3) : '-') + '</b></span>' +
+      '<span style="color:var(--wp-text2);font-size:13px">Latitude: <b id="am-lat">' + (sv.lat != null ? (+sv.lat).toFixed(3) : '-') + '</b></span>' +
+      '<span class="wp-lnk" id="am-modify">Modify</span>' +
+      '<span style="margin-left:auto;color:var(--wp-text2);font-size:12px">' +
+        'Local IP: <b>' + esc(sv.ip || '-') + '</b>' + (sv.city ? ' · ' + esc(sv.city) + ', ' + esc(sv.country) : '') + '</span>' +
+      '<span class="wp-lnk" id="am-full">&#10530; Full-screen</span>' +
+      '</div>';
+    h += '<div id="am-map" style="height:620px;width:100%"></div>';
+    h += '</div>';
+    $('#wp-body').html(h);
+
+    loadWorld(function () { drawAttackMap(r); });
+
+    $('#am-modify').on('click', function () { amModifyDialog(sv); });
+    $('#am-full').on('click', function () {
+      var el = document.getElementById('am-map');
+      if (!el) return;
+      if (el.requestFullscreen) el.requestFullscreen();
+      else if (el.webkitRequestFullscreen) el.webkitRequestFullscreen();
+      setTimeout(function () { if (S.charts['am-map']) try { S.charts['am-map'].resize(); } catch (e) {} }, 300);
+    });
+  }
+
+  function drawAttackMap(r) {
+    var el = document.getElementById('am-map');
+    if (!el) return;
+    if (typeof echarts === 'undefined' || !echarts.getMap || !echarts.getMap('world')) {
+      el.innerHTML = '<div class="wp-empty">World map data unavailable</div>'; return;
+    }
+    var sv = r.server || {};
+    var pts = r.points || [];
+    if (sv.lat == null || sv.lon == null) {
+      el.innerHTML = '<div class="wp-empty">Server location unknown — set it with Modify.</div>'; return;
+    }
+    var target = [sv.lon, sv.lat];
+    var max = Math.max.apply(null, pts.map(function (p) { return p.count; }).concat([1]));
+
+    var scatter = pts.map(function (p) {
+      return { name: (p.country || '') + (p.city ? ' / ' + p.city : ''),
+               value: [p.lon, p.lat, p.count] };
+    });
+    var lines = pts.map(function (p) {
+      return { coords: [[p.lon, p.lat], target], value: p.count };
+    });
+
+    ec('am-map', {
+      tooltip: {
+        trigger: 'item',
+        formatter: function (p) {
+          if (p.seriesType === 'lines') return '';
+          if (p.data && p.data.value) return (p.name || 'Unknown') + '<br/>Attacks: ' + p.data.value[2];
+          return p.name || '';
+        }
+      },
+      geo: {
+        map: 'world', roam: true, zoom: 1.2, center: [30, 20],
+        itemStyle: { areaColor: '#eef1f3', borderColor: '#dfe4e8' },
+        emphasis: { itemStyle: { areaColor: '#e3ece5' }, label: { show: false } }
+      },
+      series: [
+        {
+          type: 'lines', coordinateSystem: 'geo', zlevel: 1,
+          effect: { show: true, period: 5, trailLength: 0.5, symbol: 'arrow', symbolSize: 5, color: '#fa8c16' },
+          lineStyle: { color: '#fa8c16', width: 1, opacity: 0.5, curveness: 0.3 },
+          data: lines
+        },
+        {
+          type: 'effectScatter', coordinateSystem: 'geo', zlevel: 2,
+          rippleEffect: { brushType: 'stroke', scale: 2.5 },
+          symbolSize: function (v) { return Math.max(6, Math.min(24, 6 + (v[2] / max) * 18)); },
+          itemStyle: { color: '#ef4d4d' },
+          data: scatter
+        },
+        {
+          // the server marker (Local IP)
+          type: 'effectScatter', coordinateSystem: 'geo', zlevel: 3,
+          rippleEffect: { brushType: 'fill', scale: 4, period: 3 },
+          symbolSize: 16, itemStyle: { color: '#e04322' },
+          label: { show: true, formatter: 'Local IP', position: 'right',
+                   color: '#e04322', fontWeight: 600, fontSize: 11 },
+          data: [{ name: 'Local IP: ' + (sv.ip || ''), value: [sv.lon, sv.lat, 0] }]
+        }
+      ]
+    });
+  }
+
+  function amModifyDialog(sv) {
+    var h = '<div class="wp-modal"><div class="wp-mod-head">' +
+      '<div class="wp-mod-site">Server location</div>' +
+      '<div class="wp-mod-meta">Where the Local IP marker sits on the map. Reference only.</div></div>' +
+      '<div class="wp-mod-body"><div class="wp-mod-sec">' +
+        '<div class="wp-mod-row"><div class="wp-mod-lbl">Latitude</div>' +
+          '<div class="wp-mod-ctl"><input class="wp-in" id="am-in-lat" style="width:180px" value="' + (sv.lat != null ? sv.lat : '') + '" placeholder="-90 to 90"></div></div>' +
+        '<div class="wp-mod-row"><div class="wp-mod-lbl">Longitude</div>' +
+          '<div class="wp-mod-ctl"><input class="wp-in" id="am-in-lon" style="width:180px" value="' + (sv.lon != null ? sv.lon : '') + '" placeholder="-180 to 180"></div></div>' +
+      '</div></div>' +
+      '<div class="wp-mod-foot"><span class="wp-btn" id="am-cancel">Cancel</span>' +
+        '<span class="wp-btn primary" id="am-ok">Save</span></div></div>';
+    var idx = layer.open({ type: 1, title: false, closeBtn: 1, area: ['440px', '320px'], content: h });
+    $('#am-cancel').on('click', function () { layer.close(idx); });
+    $('#am-ok').on('click', function () {
+      post('set_map_location', { lat: $('#am-in-lat').val(), lon: $('#am-in-lon').val() }, function (rr) {
+        layer.msg(rr.msg, { icon: rr.status ? 1 : 2 });
+        if (rr.status) { layer.close(idx); route(); }
+      });
+    });
+  }
+  /* ================= REPORT =================
+     Attack analytics from the block log: protection-type donut + country
+     leaderboard on the left, IP / URI / Search tables on the right. */
+  var RP_COLORS = ['#20a53a', '#3b82f6', '#fa8c16', '#22c3c3', '#8b5cf6', '#ef4d4d',
+                   '#eab308', '#ec4899', '#14b8a6', '#6366f1'];
+
+  function pageReport() {
+    S.rpSub = S.rpSub || 'ip';
+    S.rpDate = S.rpDate || 'today';
+    S.rpStart = S.rpStart || ''; S.rpEnd = S.rpEnd || '';
+    loadReport();
+  }
+
+  function rpDateArgs() {
+    return (S.rpStart && S.rpEnd) ? { date: '', start: S.rpStart, end: S.rpEnd } : { date: S.rpDate };
+  }
+
+  function loadReport() {
+    $('#wp-body').html('<div class="wp-loading">Loading...</div>');
+    post('report', rpDateArgs(), function (r) {
+      if (!r.status) { $('#wp-body').html('<div class="wp-note">' + esc(r.msg || 'error') + '</div>'); return; }
+      S.rpData = r;
+      renderReport(r);
+    });
+  }
+
+  function renderReport(r) {
+    var h = '<div class="wp-row wp-main-grid">';
+
+    /* ---- LEFT ---- */
+    h += '<div class="wp-col">';
+    h += '<div class="wp-card"><div class="wp-card-h">' + icoPie() +
+      '<span class="t">Total protection type</span></div>' +
+      '<div class="wp-chart" id="rp-donut" style="height:230px"></div></div>';
+    h += '<div class="wp-card"><div class="wp-card-h">' + icoWarn() +
+      '<span class="t">Attack IP Leader board</span></div><div id="rp-lb"></div></div>';
+    h += '</div>';
+
+    /* ---- RIGHT ---- */
+    h += '<div class="wp-col">';
+    h += '<div class="wp-card">';
+    // header: sub-tabs + date filter
+    h += '<div style="display:flex;align-items:center;flex-wrap:wrap;gap:12px;margin-bottom:14px">' +
+      '<div class="wp-subtabs" id="rp-subs" style="margin:0;border:0;flex:1">' +
+        [['ip', 'IP Report'], ['uri', 'URI Report'], ['search', 'Search']].map(function (x) {
+          return '<span class="wp-subtab' + (x[0] === S.rpSub ? ' on' : '') + '" data-s="' + x[0] + '">' + x[1] + '</span>';
+        }).join('') + '</div>' +
+      '<div style="display:flex;align-items:center;gap:6px">' +
+        '<span class="wp-btn rp-range' + (S.rpDate === 'yesterday' && !S.rpStart ? ' primary' : '') + '" data-d="yesterday">Yesterday</span>' +
+        '<span class="wp-btn rp-range' + (S.rpDate === 'today' && !S.rpStart ? ' primary' : '') + '" data-d="today">Today</span>' +
+        '<input class="wp-in" id="rp-start" type="date" style="width:140px" value="' + esc(S.rpStart) + '">' +
+        '<span style="color:var(--wp-text3)">→</span>' +
+        '<input class="wp-in" id="rp-end" type="date" style="width:140px" value="' + esc(S.rpEnd) + '">' +
+        '<span class="wp-btn primary" id="rp-apply">Report</span>' +
+      '</div></div>';
+    h += '<div id="rp-body"></div>';
+    h += '</div></div>';
+
+    h += '</div>';
+    $('#wp-body').html(h);
+
+    drawReportDonut(r);
+    renderLeaderboard(r);
+    renderReportBody();
+
+    $('#rp-subs .wp-subtab').on('click', function () {
+      S.rpSub = $(this).data('s');
+      $('#rp-subs .wp-subtab').removeClass('on'); $(this).addClass('on');
+      renderReportBody();
+    });
+    $('.rp-range').on('click', function () {
+      S.rpDate = $(this).data('d'); S.rpStart = ''; S.rpEnd = '';
+      loadReport();
+    });
+    $('#rp-apply').on('click', function () {
+      var st = $('#rp-start').val(), en = $('#rp-end').val();
+      if (st && en) { S.rpStart = st; S.rpEnd = en; }
+      else { S.rpStart = ''; S.rpEnd = ''; }
+      loadReport();
+    });
+  }
+
+  function drawReportDonut(r) {
+    var data = (r.protection || []).map(function (x, i) {
+      return { name: x.name, value: x.count, itemStyle: { color: RP_COLORS[i % RP_COLORS.length] } };
+    });
+    ensureEcharts(function () {
+      ec('rp-donut', {
+        tooltip: { trigger: 'item', formatter: '{b}: {c} ({d}%)' },
+        legend: { type: 'scroll', orient: 'horizontal', bottom: 0, textStyle: { fontSize: 11 } },
+        series: [{
+          type: 'pie', radius: ['45%', '65%'], center: ['50%', '42%'],
+          avoidLabelOverlap: true, label: { show: false }, labelLine: { show: false },
+          data: data.length ? data : [{ name: 'No data', value: 1, itemStyle: { color: '#eee' } }]
+        }]
+      });
+      var el = document.getElementById('rp-donut');
+      if (el && r.total) {
+        // center total
+        var d = document.createElement('div');
+        d.style.cssText = 'position:absolute;top:38%;left:0;right:0;text-align:center;pointer-events:none';
+        d.innerHTML = '<div style="font-size:12px;color:var(--wp-text2)">Protection Type</div>' +
+          '<div style="font-size:22px;font-weight:700;color:var(--wp-text)">' + num(r.total) + '</div>';
+        el.style.position = 'relative'; el.appendChild(d);
+      }
+    });
+  }
+
+  function renderLeaderboard(r) {
+    var lb = r.leaderboard || [];
+    if (!lb.length) { $('#rp-lb').html('<div class="wp-empty">No attacks in this window</div>'); return; }
+    var max = lb[0].count || 1;
+    $('#rp-lb').html(lb.map(function (x, i) {
+      return '<div class="wp-rank"><span class="n' + (i < 3 ? ' top' : '') + '">' + (i + 1) + '</span>' +
+        '<span class="nm" title="' + esc(x.country) + '">' + esc(x.country) + '</span>' +
+        '<span class="tr"><i style="width:' + Math.max(x.count / max * 100, 3) + '%"></i></span>' +
+        '<span class="v">' + num(x.count) + '</span></div>';
+    }).join(''));
+  }
+
+  function renderReportBody() {
+    var r = S.rpData || {};
+    if (S.rpSub === 'search') return renderReportSearch();
+    if (S.rpSub === 'uri') {
+      var rows = r.uri_report || [];
+      var h = '<table class="wp-tbl"><thead><tr><th>Attacked URI</th>' +
+        '<th style="width:120px">Num of attacks</th><th style="width:280px">Attack ratio</th></tr></thead><tbody>';
+      h += rows.length ? rows.map(function (x) {
+        return '<tr><td class="ell" title="' + esc(x.uri) + '">' + esc(x.uri) + '</td>' +
+          '<td>' + num(x.count) + '</td><td>' + ratioBar(x.ratio) + '</td></tr>';
+      }).join('') : '<tr><td colspan="3" class="wp-empty">No data in this window</td></tr>';
+      h += '</tbody></table>';
+      $('#rp-body').html(h);
+      return;
+    }
+    // IP report
+    var rows = r.ip_report || [];
+    var h = '<table class="wp-tbl"><thead><tr><th style="width:150px">Attack IP</th>' +
+      '<th style="width:150px">IP Location</th><th style="width:120px">Num of attacks</th>' +
+      '<th>Attack ratio</th><th style="width:130px">Operate</th></tr></thead><tbody>';
+    h += rows.length ? rows.map(function (x) {
+      return '<tr data-ip="' + esc(x.ip) + '"><td style="font-weight:600;color:var(--wp-text)">' + esc(x.ip) + '</td>' +
+        '<td>' + esc(x.location) + '</td><td>' + num(x.count) + '</td>' +
+        '<td>' + ratioBar(x.ratio) + '</td>' +
+        '<td><a href="javascript:;" class="rp-bl" style="color:var(--wp-green)">Blacklist</a> ' +
+        '<span style="color:var(--wp-border)">|</span> ' +
+        '<a href="javascript:;" class="rp-detail" style="color:var(--wp-green)">Details</a></td></tr>';
+    }).join('') : '<tr><td colspan="5" class="wp-empty">No attacks in this window</td></tr>';
+    h += '</tbody></table>';
+    $('#rp-body').html(h);
+
+    $('#rp-body').on('click', '.rp-bl', function () {
+      var ip = $(this).closest('tr').data('ip');
+      layer.confirm('Add <b>' + esc(ip) + '</b> to the IP blacklist?', { icon: 3, title: 'Blacklist IP' }, function (i) {
+        layer.close(i);
+        post('list_add', { list_name: 'ip_black', value: ip }, function (rr) {
+          layer.msg(rr.msg, { icon: rr.status ? 1 : 2 });
+        });
+      });
+    });
+    $('#rp-body').on('click', '.rp-detail', function () {
+      reportDetail($(this).closest('tr').data('ip'));
+    });
+  }
+
+  function renderReportSearch() {
+    var h = '<div style="display:flex;gap:8px;margin-bottom:12px">' +
+      '<input class="wp-in" id="rp-q" placeholder="Search by IP or URI" style="flex:1" value="' + esc(S.rpQ || '') + '">' +
+      '<span class="wp-btn primary" id="rp-search-go">Search</span></div>' +
+      '<div id="rp-search-res"><div class="wp-empty">Enter an IP or URI and press Search.</div></div>';
+    $('#rp-body').html(h);
+    function go() {
+      var q = ($('#rp-q').val() || '').trim(); if (!q) return;
+      S.rpQ = q;
+      $('#rp-search-res').html('<div class="wp-loading">Searching...</div>');
+      post('report_search', $.extend(rpDateArgs(), { q: q }), function (rr) {
+        if (!rr.status) { $('#rp-search-res').html('<div class="wp-note">' + esc(rr.msg) + '</div>'); return; }
+        var rows = rr.data || [];
+        var t = '<div style="color:var(--wp-text3);font-size:12px;margin-bottom:8px">' + rr.count + ' match(es)</div>' +
+          '<table class="wp-tbl"><thead><tr><th style="width:150px">Time</th><th style="width:140px">IP</th>' +
+          '<th>URI</th><th style="width:150px">Type</th><th style="width:60px">Code</th></tr></thead><tbody>' +
+          (rows.length ? rows.map(function (x) {
+            return '<tr><td>' + esc(fmtTime(x.time)) + '</td><td style="font-weight:600">' + esc(x.ip) + '</td>' +
+              '<td class="ell" title="' + esc(x.uri) + '">' + esc(x.uri) + '</td>' +
+              '<td>' + esc(x.name) + '</td><td>' + esc(String(x.status)) + '</td></tr>';
+          }).join('') : '<tr><td colspan="5" class="wp-empty">No match</td></tr>') + '</tbody></table>';
+        $('#rp-search-res').html(t);
+      });
+    }
+    $('#rp-search-go').on('click', go);
+    $('#rp-q').on('keydown', function (e) { if (e.keyCode === 13) go(); });
+  }
+
+  function reportDetail(ip) {
+    post('report_ip_detail', $.extend(rpDateArgs(), { ip: ip }), function (r) {
+      if (!r.status) { layer.msg(r.msg || 'error', { icon: 2 }); return; }
+      var h = '<div class="wp-modal"><div class="wp-mod-head">' +
+        '<div class="wp-mod-site">' + esc(ip) + '</div>' +
+        '<div class="wp-mod-meta">' + esc(r.location) + ' · ' + (r.rows.length) + ' block(s) in this window</div></div>' +
+        '<div class="wp-mod-body">';
+      h += '<div class="wp-mod-sec"><div class="wp-mod-sec-t">By type</div>' +
+        (r.breakdown || []).map(function (x) {
+          return '<div style="display:flex;justify-content:space-between;padding:4px 0"><span>' + esc(x.name) +
+            '</span><span style="font-weight:600">' + num(x.count) + '</span></div>';
+        }).join('') + '</div>';
+      h += '<div class="wp-mod-sec"><div class="wp-mod-sec-t">Recent blocks</div>' +
+        '<table class="wp-tbl"><thead><tr><th style="width:140px">Time</th><th>URI</th>' +
+        '<th style="width:140px">Type</th></tr></thead><tbody>' +
+        (r.rows || []).map(function (x) {
+          return '<tr><td>' + esc(fmtTime(x.time)) + '</td><td class="ell" title="' + esc(x.uri) + '">' + esc(x.uri) + '</td>' +
+            '<td>' + esc(x.name) + '</td></tr>';
+        }).join('') + '</tbody></table></div>';
+      h += '</div><div class="wp-mod-foot">' +
+        '<span class="wp-btn" id="rp-d-bl">Add to blacklist</span>' +
+        '<span class="wp-btn primary" id="rp-d-close">Close</span></div></div>';
+      var idx = layer.open({ type: 1, title: false, closeBtn: 1, area: ['680px', '600px'], content: h });
+      $('#rp-d-close').on('click', function () { layer.close(idx); });
+      $('#rp-d-bl').on('click', function () {
+        post('list_add', { list_name: 'ip_black', value: ip }, function (rr) {
+          layer.msg(rr.msg, { icon: rr.status ? 1 : 2 }); if (rr.status) layer.close(idx);
+        });
+      });
+    });
+  }
+
+  function ratioBar(pct) {
+    pct = pct || 0;
+    return '<div style="display:flex;align-items:center;gap:8px">' +
+      '<div style="flex:1;height:8px;background:var(--wp-bg);border-radius:4px;overflow:hidden">' +
+      '<i style="display:block;height:100%;width:' + Math.max(pct, 2) + '%;background:var(--wp-green)"></i></div>' +
+      '<span style="width:46px;text-align:right;color:var(--wp-text2);font-size:12px">' + pct + '%</span></div>';
+  }
+  function fmtTime(t) {
+    if (!t) return '-';
+    var d = new Date(t * 1000);
+    function p(n) { return (n < 10 ? '0' : '') + n; }
+    return p(d.getMonth() + 1) + '-' + p(d.getDate()) + ' ' + p(d.getHours()) + ':' + p(d.getMinutes()) + ':' + p(d.getSeconds());
   }
   function pageGlobal() {
     $('#wp-body').html('<div class="wp-loading">Loading...</div>');

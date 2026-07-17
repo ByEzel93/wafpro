@@ -849,6 +849,9 @@ p{margin:0;color:#5c6470}
         'deny-ext': 'Forbidden file', 'upload-ext': 'Webshell upload',
         'php-path': 'PHP in upload dir', 'method': 'Bad HTTP method', 'header': 'Oversized header',
         'region:intercept': 'Region blocked', 'region:pass': 'Region not allowed',
+        'region': 'Region rule', 'sensitive': 'Sensitive word',
+        'traffic': 'Traffic limit', 'traffic-block': 'Traffic limit (block)',
+        'custom': 'Custom rule',
     }
 
     def _log_files(self, site, date):
@@ -1058,6 +1061,73 @@ p{margin:0;color:#5c6470}
                      for k, v in sorted(by_rule.items(), key=lambda x: -x[1])]
         return {'status': True, 'ip': ip, 'location': loc,
                 'rows': rows, 'breakdown': breakdown}
+
+    # ---- Attack Map ----
+    MAP_FILE = PLUGIN_PATH + 'map_location.json'
+
+    def _server_location(self):
+        '''Where the "Local IP" marker sits. A manual override (Modify) wins;
+        otherwise geo-locate the panel's own public IP.'''
+        saved = self._read_json(self.MAP_FILE, None)
+        if isinstance(saved, dict) and saved.get('lat') is not None:
+            return saved
+        ip = ''
+        try:
+            ip = (public.readFile('/www/server/panel/data/iplist.txt') or '').strip().split('\n')[0]
+        except Exception:
+            pass
+        loc = {'ip': ip, 'lat': None, 'lon': None, 'country': '', 'city': ''}
+        if ip:
+            try:
+                g = self._dash().geo_lookup(ip)
+                loc.update({'lat': g.get('lat'), 'lon': g.get('lon'),
+                            'country': g.get('country') or '', 'city': g.get('city') or ''})
+            except Exception:
+                pass
+        return loc
+
+    def attack_map(self, get):
+        '''Attacker coordinates + the server marker, for the world map.'''
+        recs = self._report_records(get)
+        pts = {}
+        try:
+            dash = self._dash()
+        except Exception:
+            dash = None
+        for d in recs:
+            ip = d.get('ip') or ''
+            if not ip or not dash:
+                continue
+            try:
+                g = dash.geo_lookup(ip)
+            except Exception:
+                continue
+            lat, lon = g.get('lat'), g.get('lon')
+            if lat is None or lon is None:
+                continue
+            key = '{:.2f},{:.2f}'.format(lat, lon)
+            p = pts.get(key)
+            if not p:
+                p = {'lat': lat, 'lon': lon, 'count': 0,
+                     'country': g.get('country') or 'Unknown', 'city': g.get('city') or ''}
+                pts[key] = p
+            p['count'] += 1
+        return {'status': True, 'points': list(pts.values()),
+                'server': self._server_location()}
+
+    def set_map_location(self, get):
+        '''Manually set the Local IP marker's coordinates.'''
+        try:
+            lat = float(getattr(get, 'lat'))
+            lon = float(getattr(get, 'lon'))
+        except Exception:
+            return public.returnMsg(False, 'Latitude and longitude must be numbers')
+        if not (-90 <= lat <= 90 and -180 <= lon <= 180):
+            return public.returnMsg(False, 'Coordinates out of range')
+        cur = self._server_location()
+        cur.update({'lat': lat, 'lon': lon})
+        self._write_json(self.MAP_FILE, cur)
+        return public.returnMsg(True, 'Map location updated')
 
     def get_logs(self, get):
         '''Filterable, paged WAF log reader.
