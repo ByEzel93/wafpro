@@ -19,7 +19,7 @@ Install_wafpro()
 	fi
 
 	# The engine ships with this module — no other WAF plugin is required.
-	\cp -a -f $pluginPath/engine/wafpro.lua $pluginPath/engine/loader.lua \
+	\cp -a -f $pluginPath/engine/wafpro.lua \
 	          $pluginPath/engine/init.lua $pluginPath/engine/worker.lua \
 	          $pluginPath/engine/waf.lua $enginePath/ 2>/dev/null
 
