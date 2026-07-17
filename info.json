@@ -8,7 +8,7 @@
   "shell": "install.sh",
   "checks": "/www/server/panel/plugin/wafpro",
   "author": "ezel",
-  "home": "https://github.com/",
+  "home": "https://github.com/ByEzel93/wafpro",
   "date": "2026-07-17",
   "default": false,
   "display": 0,
