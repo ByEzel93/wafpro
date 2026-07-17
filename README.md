@@ -54,6 +54,32 @@ one dashboard:
   (`/www/server/panel/data/firewall/GeoLite2-Country.json`) — normally already
   present.
 
+## Limitations — please read
+
+**WAF Pro is for static and PHP sites. It is NOT compatible with Node.js /
+reverse-proxy sites.**
+
+The engine hooks into nginx's `access` phase globally (the same design aaPanel's
+own free WAF uses). Sites served through a reverse proxy — **Node.js, Nuxt,
+Next.js**, or anything using `proxy_pass` with WebSocket/streaming
+(`Connection: upgrade`) — are broken by this: dynamic requests start returning
+**503 Service Temporarily Unavailable**, so pages load but navigation/API calls
+fail. This is a fundamental limitation of the access-phase approach, not a bug
+that can be toggled off per site.
+
+Such apps are almost always behind a CDN (Cloudflare, etc.) whose own WAF
+already covers them, so you don't need this plugin there.
+
+**If a dynamic site starts returning 503 after you enable the engine**, disable
+it immediately:
+
+```bash
+rm -f /www/server/panel/vhost/nginx/wafpro.conf
+nginx -t && nginx -s reload
+```
+
+That fully removes the engine from nginx; your sites keep running.
+
 ## Install
 
 1. Download the latest **`wafpro-x.x.zip`** from the

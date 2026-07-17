@@ -13,6 +13,9 @@ Install_wafpro()
 	mkdir -p $pluginPath/cache $pluginPath/export $pluginPath/rules
 	mkdir -p $enginePath/rule $logPath
 	chmod 700 $pluginPath/cache $pluginPath/export
+	# nginx workers run as www and must be able to write the block log; the dir
+	# is created by root, so hand it to www or logging silently fails.
+	chown -R www:www $logPath 2>/dev/null
 
 	if [ -f $pluginPath/icon.png ]; then
 		\cp -a -r $pluginPath/icon.png /www/server/panel/BTPanel/static/img/soft_ico/ico-wafpro.png
@@ -22,6 +25,8 @@ Install_wafpro()
 	\cp -a -f $pluginPath/engine/wafpro.lua \
 	          $pluginPath/engine/init.lua $pluginPath/engine/worker.lua \
 	          $pluginPath/engine/waf.lua $enginePath/ 2>/dev/null
+	# Drop the old per-request loader from pre-2.0 layouts (engine is cached now)
+	rm -f $enginePath/loader.lua
 
 	# The panel ships the country DB but no longer refreshes it (task.py's
 	# flush_geoip is commented out), so fetch it ourselves when missing.
