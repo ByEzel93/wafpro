@@ -95,7 +95,7 @@ something goes wrong, please wait for a more mature release.
 Please **open an issue on GitHub** rather than only reporting it on the forum —
 that way it's tracked and others can see it:
 
-**➡️ https://github.com/<your-username>/wafpro/issues**
+**➡️ https://github.com/ByEzel93/wafpro/issues**
 
 When opening an issue, include:
 
