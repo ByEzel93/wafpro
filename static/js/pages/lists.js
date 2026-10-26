@@ -147,7 +147,7 @@
         });
       });
       $('#wp-l-import').on('click', function () {
-        layer.open({
+        W.open({
           type: 1, title: 'Import ' + def.t, area: ['520px', 'auto'], btn: ['Import', 'Cancel'],
           content: '<div class="wp-g-dlg"><textarea class="wp-in" id="wp-imp-body" style="width:100%;height:200px;' +
             'font-family:ui-monospace,Menlo,monospace;font-size:12px" placeholder="' + esc(IMPORT_FMT[def.kind]) + '"></textarea></div>',
@@ -163,7 +163,7 @@
         });
       });
       $('#wp-l-empty').on('click', function () {
-        layer.confirm('Are you sure you want to clear ' + def.t + ' data?', { icon: 3, title: 'Clear ' + def.t }, function (i) {
+        W.confirm('Are you sure you want to clear ' + def.t + ' data?', { icon: 3, title: 'Clear ' + def.t }, function (i) {
           layer.close(i);
           post('list_empty', { list_name: def.key }, function (rr) { msg(rr); loadList(); });
         });
@@ -198,7 +198,7 @@
       function (k) { S.listSize = k; S.listPage = 1; renderListTable(); });
     $('.wp-list-del').on('click', function () {
       var idx = $(this).data('i');
-      layer.confirm('Delete this entry?', { icon: 3, title: 'Delete' }, function (i) {
+      W.confirm('Delete this entry?', { icon: 3, title: 'Delete' }, function (i) {
         layer.close(i);
         post('list_del', { list_name: listDef().key, index: idx }, function (rr) { msg(rr); loadList(); });
       });

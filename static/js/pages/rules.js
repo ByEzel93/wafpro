@@ -127,7 +127,7 @@
     });
     $('#wp-body').on('click', '.cr-del', function () {
       var id = $(this).closest('tr').data('id');
-      layer.confirm('Delete this custom rule?', function (i) {
+      W.confirm('Delete this custom rule?', function (i) {
         layer.close(i);
         post('custom_del', { id: id }, function (rr) {
           layer.msg(rr.msg, { icon: rr.status ? 1 : 2 });
@@ -213,7 +213,7 @@
         '<span class="wp-btn primary" id="cr-ok">' + (edit ? 'Save' : 'Add') + '</span>' +
       '</div></div>';
 
-    var idx = layer.open({ type: 1, title: false, closeBtn: 1, area: ['760px', '640px'], content: h });
+    var idx = W.open({ type: 1, title: false, closeBtn: 1, area: ['760px', '640px'], content: h });
 
     function addCond(c) {
       var $row = $(crCondRow(c)).appendTo('#cr-conds');

@@ -376,7 +376,7 @@
               'Enabling adds an <b>upstream_response_time</b> field to your access logs.</div>' +
               '<span class="wp-btn primary" id="wp-rt-enable">Enable tracking</span></div>');
             $('#wp-rt-enable').on('click', function () {
-              layer.confirm('Add the origin-response field to your nginx access logs?<br><br>' +
+              W.confirm('Add the origin-response field to your nginx access logs?<br><br>' +
                 'This edits nginx.conf and the site configs (both are backed up, nginx is ' +
                 'syntax-checked and rolled back automatically if anything fails).',
                 { icon: 3, title: 'Enable origin response tracking' }, function (i) {

@@ -232,7 +232,27 @@
   }
 
 
+  /* ---------- dialogs ----------
+     Every dialog of ours goes through these so it gets the aaPanel 8 modal
+     look (skin 'wp-layer'); the panel's own popups keep their skin. */
+  function open(o) {
+    o.skin = ((o.skin || '') + ' wp-layer').trim();
+    return layer.open(o);
+  }
+  function confirm(msg, opt, yes) {
+    if (typeof opt === 'function') { yes = opt; opt = {}; }
+    opt = $.extend({ title: 'Tips', btn: ['Confirm', 'Cancel'] }, opt || {});
+    delete opt.icon;
+    return open($.extend(opt, {
+      type: 1, area: opt.area || ['440px', 'auto'],
+      content: '<div class="wp-g-dlg wp-confirm">' + msg + '</div>',
+      yes: function (i) { if (yes) yes(i); else layer.close(i); }
+    }));
+  }
+
   // exports
+  W.open = open;
+  W.confirm = confirm;
   W.API = API;
   W.RESERVED = RESERVED;
   W.S = S;

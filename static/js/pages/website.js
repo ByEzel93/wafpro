@@ -245,7 +245,7 @@
           '<span class="wp-btn" id="m-cancel">Cancel</span>' +
           '<span class="wp-btn primary" id="m-save">Save</span>' +
         '</div></div>';
-      layer.open({
+      W.open({
         type: 1, title: 'Modify site — ' + name, area: ['720px', '680px'], content: body,
         success: function () {
           $('#m-cancel').on('click', function () { layer.closeAll('page'); });
@@ -407,7 +407,7 @@
       S.srSwitching = true;
       layer.closeAll('page');
       S.srSwitching = false;
-      layer.open({
+      W.open({
         type: 1, title: single ? cur.t : (name === '*' ? 'Global rules' : 'Site rules — ' + name),
         area: [single ? '720px' : '820px', '600px'], content: h,
         success: function () {

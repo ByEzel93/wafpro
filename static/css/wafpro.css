@@ -523,3 +523,45 @@ select.wp-in{height:32px}
 .wp-ms-opt.on::after{content:'\2713';float:right}
 .wp-html-ed{flex:1;width:100%;min-height:380px;font:12px/1.6 ui-monospace,Menlo,Consolas,monospace;resize:none;box-sizing:border-box}
 .wp-g-dlg .wp-in{box-sizing:border-box}
+
+/* ================= dialogs: aaPanel 8 (naive-ui) modal look =================
+   Only layers opened through W.open/W.confirm carry .wp-layer. */
+.layui-layer.wp-layer{border-radius:6px;overflow:hidden;box-shadow:0 6px 16px -9px rgba(0,0,0,.08),
+  0 9px 28px 0 rgba(0,0,0,.05),0 12px 48px 16px rgba(0,0,0,.03);border:none}
+.layui-layer.wp-layer .layui-layer-title{height:54px;line-height:54px;padding:0 50px 0 24px;background:#fff;
+  border-bottom:1px solid #efeff5;font-size:16px;font-weight:500;color:#1f2225;border-radius:6px 6px 0 0}
+.layui-layer.wp-layer .layui-layer-setwin{top:19px;right:20px}
+.layui-layer.wp-layer .layui-layer-content{color:#333639;font-size:13px}
+.layui-layer.wp-layer .layui-layer-btn{display:flex;flex-direction:row-reverse;justify-content:flex-start;gap:10px;
+  padding:12px 24px;border-top:1px solid #efeff5;background:#fff;text-align:right}
+.layui-layer.wp-layer .layui-layer-btn a{margin:0;height:32px;line-height:30px;padding:0 16px;border-radius:4px;
+  font-size:13px;font-weight:400;border:1px solid #e0e0e6;background:#fff;color:#333639;transition:all .2s}
+.layui-layer.wp-layer .layui-layer-btn a:hover{border-color:#20a53a;color:#20a53a;opacity:1}
+.layui-layer.wp-layer .layui-layer-btn .layui-layer-btn0{background:#20a53a;border-color:#20a53a;color:#fff}
+.layui-layer.wp-layer .layui-layer-btn .layui-layer-btn0:hover{background:#3fb75a;border-color:#3fb75a;color:#fff}
+.wp-confirm{padding:22px 24px !important;line-height:1.7;color:#333639}
+.wp-g-dlg{padding:20px 24px}
+
+/* Region add dialog = stock area picker */
+.wp-ra{padding:24px 32px !important}
+.wp-ra .wp-in, .wp-ra select.wp-in{height:30px;border-radius:4px;border-color:#e0e0e6}
+.wp-ra-chip{height:24px;border-radius:12px;padding:0 6px 0 11px;background:#e9f6ec;border:1px solid #c3e8cb}
+.wp-ra-tabs{border-bottom:1px solid #efeff5;align-items:center}
+.wp-ra-tabbar{gap:4px;margin-bottom:-1px}
+.wp-ra-tabbar span{height:auto;line-height:20px;padding:8px 16px 6px;border-color:#efeff5;background:#f7f7fa;font-size:14px;color:#333639}
+.wp-ra-tabbar span:hover{color:#20a53a}
+.wp-ra-tabbar span.on{background:#fff;color:#20a53a;border-color:#efeff5;border-bottom-color:#fff}
+.wp-ra-search{margin:0 0 4px 8px}
+.wp-ra-search .wp-in{width:200px;height:26px !important;font-size:12px}
+.wp-ra-body{border:1px solid #efeff5;border-top:none;border-radius:0 0 4px 4px;padding:16px;min-height:244px;max-height:280px}
+.wp-ra-t{font-weight:700;margin:0 0 10px;color:#333639}
+.wp-ra-grid{display:grid;grid-template-columns:repeat(6,minmax(0,1fr));gap:6px;margin-bottom:16px}
+.wp-ra-tag{width:100%;height:32px;padding:0 8px;border:1px solid transparent;border-radius:4px;box-sizing:border-box;
+  overflow:hidden;white-space:nowrap;text-overflow:ellipsis;display:flex;transition:all .3s;color:#333639}
+.wp-ra-tag:hover, .wp-ra-tag.on{border-color:#20a53a;background:#e9f6ec;color:#20a53a}
+.wp-ra-tag em{flex:none}
+.wp-ms-box{border-color:#e0e0e6;min-height:30px;padding:2px 6px}
+.layui-layer.wp-layer .layui-layer-btn{box-sizing:border-box;width:100%}
+/* naive-ui select: no native arrow, a thin chevron instead */
+.wp-g-dlg select.wp-in, #wafpro-app select.wp-in{appearance:none;-webkit-appearance:none;padding-right:28px;background:#fff
+  url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 16 16'%3E%3Cpath d='M4 6l4 4 4-4' fill='none' stroke='%23999' stroke-width='1.4'/%3E%3C/svg%3E") no-repeat right 8px center/14px}

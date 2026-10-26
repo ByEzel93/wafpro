@@ -123,7 +123,7 @@
       '</div></div>' +
       '<div class="wp-mod-foot"><span class="wp-btn" id="am-cancel">Cancel</span>' +
         '<span class="wp-btn primary" id="am-ok">Save</span></div></div>';
-    var idx = layer.open({ type: 1, title: false, closeBtn: 1, area: ['440px', '320px'], content: h });
+    var idx = W.open({ type: 1, title: false, closeBtn: 1, area: ['440px', '320px'], content: h });
     $('#am-cancel').on('click', function () { layer.close(idx); });
     $('#am-ok').on('click', function () {
       post('set_map_location', { lat: $('#am-in-lat').val(), lon: $('#am-in-lon').val() }, function (rr) {

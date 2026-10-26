@@ -93,7 +93,7 @@
     });
     $('#wp-body').on('click', '.tl-del', function () {
       var id = $(this).closest('tr').data('id');
-      layer.confirm('Delete this traffic restriction?', function (i) {
+      W.confirm('Delete this traffic restriction?', function (i) {
         layer.close(i);
         post('traffic_del', { id: id }, function (rr) {
           layer.msg(rr.msg, { icon: rr.status ? 1 : 2 });
@@ -158,7 +158,7 @@
         '<span class="wp-btn primary" id="tl-ok">' + (edit ? 'Save' : 'Add') + '</span>' +
       '</div></div>';
 
-    var idx = layer.open({ type: 1, title: false, closeBtn: 1, area: ['680px', '620px'], content: h });
+    var idx = W.open({ type: 1, title: false, closeBtn: 1, area: ['680px', '620px'], content: h });
 
     function syncCode() { $('#tl-code-row').css('display', $('#tl-action').val() === 'block' ? 'none' : ''); }
     syncCode();

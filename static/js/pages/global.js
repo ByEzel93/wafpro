@@ -291,7 +291,7 @@
       inp.click();
     });
     $('#g-restore').on('click', function () {
-      layer.confirm('All configurations will be cleared and restored to the default configuration, including URL black and white list, IP black and white list...',
+      W.confirm('All configurations will be cleared and restored to the default configuration, including URL black and white list, IP black and white list...',
         { icon: 3, title: 'Restoring default configuration' }, function (i) {
           layer.close(i);
           post('restore_config', {}, function (rr) { layer.msg(rr.msg, { icon: rr.status ? 1 : 2 }); if (rr.status) route(); });
@@ -314,7 +314,7 @@
 
   /* ---------------- row dialogs ---------------- */
   function gDialog(title, w, body, onSave, saveText) {
-    var idx = layer.open({
+    var idx = W.open({
       type: 1, title: title, area: [w + 'px', 'auto'], closeBtn: 1, btn: [saveText || 'Save', 'Cancel'],
       content: '<div class="wp-modal wp-g-dlg">' + body + '</div>',
       yes: function () { onSave(function () { layer.close(idx); }); }
@@ -496,7 +496,7 @@
         }).join('') : '<tr><td colspan="2" class="wp-empty">Empty</td></tr>') + '</tbody></table>' +
         '<ul class="wp-site-tips"><li>Please do not fill in randomly: all prohibited words should be complete words.</li></ul>';
       layer.closeAll('page');
-      var idx = layer.open({ type: 1, title: title, area: ['600px', '520px'], content: '<div class="wp-modal wp-g-dlg">' + body + '</div>' });
+      var idx = W.open({ type: 1, title: title, area: ['600px', '520px'], content: '<div class="wp-modal wp-g-dlg">' + body + '</div>' });
       $('#wl-add').on('click', function () {
         var v = ($('#wl-in').val() || '').trim(); if (!v) return;
         post('list_add', { list_name: listName, value: v }, function (rr) {
@@ -566,7 +566,7 @@
         '<li>A rule fires on a match anywhere in the subject; anchor with ^ and $ to be precise. Changes apply in a couple of seconds.</li></ul>' +
         '</div></div>';
       S.srSwitching = true; layer.closeAll('page'); S.srSwitching = false;
-      layer.open({ type: 1, title: 'Filter rule sets', area: ['960px', '640px'], content: h, success: function () {
+      W.open({ type: 1, title: 'Filter rule sets', area: ['960px', '640px'], content: h, success: function () {
         $('.rs-tab').on('click', function () { ruleSetDialog($(this).data('k')); });
         $('#rs-add').on('click', function () {
           post('rule_add', { rule_name: name, rule: ($('#rs-rule').val() || '').trim(), ps: ($('#rs-ps').val() || '').trim() },
@@ -578,7 +578,7 @@
         });
         $('.rs-del').on('click', function () {
           var i = $(this).data('i');
-          layer.confirm('Delete this rule?', { title: 'Delete rule' }, function (k) {
+          W.confirm('Delete this rule?', { title: 'Delete rule' }, function (k) {
             layer.close(k);
             post('rule_del', { rule_name: name, index: i }, function (rr) {
               layer.msg(rr.msg, { icon: rr.status ? 1 : 2 }); if (rr.status) ruleSetDialog(name);
@@ -602,7 +602,7 @@
         esc(r.html) + '</textarea></div>' +
         '<div class="wp-mod-foot"><span class="wp-btn" id="pe-default">Restore default</span>' +
         '<span class="wp-btn" id="pe-cancel">Cancel</span><span class="wp-btn primary" id="pe-save">Save</span></div></div>';
-      var idx = layer.open({ type: 1, title: kind === 'block' ? 'Block page' : 'Browser check page',
+      var idx = W.open({ type: 1, title: kind === 'block' ? 'Block page' : 'Browser check page',
         area: ['820px', '600px'], content: h });
       $('#pe-cancel').on('click', function () { layer.close(idx); });
       $('#pe-default').on('click', function () { $('#pe-html').val(r['default']); });
@@ -618,7 +618,7 @@
      The stock WAF lists attack links to click; this sends real attack-shaped
      requests to each site through nginx and reports which rule stopped them. */
   function selfTestDialog(site) {
-    var idx = layer.open({ type: 1, title: 'Simulated attack', area: ['900px', '640px'],
+    var idx = W.open({ type: 1, title: 'Simulated attack', area: ['900px', '640px'],
       content: '<div class="wp-modal"><div class="wp-mod-body" id="st-body">' +
         '<div class="wp-loading">Sending test requests to ' + (site ? esc(site) : 'every protected site') + '...</div></div></div>' });
     post('self_test', { siteName: site || '' }, function (r) {

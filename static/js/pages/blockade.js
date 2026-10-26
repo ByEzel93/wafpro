@@ -76,7 +76,7 @@
   // entire IP section" option)
   function blockIp(ip) {
     var v4 = /^\d+\.\d+\.\d+\.\d+$/.test(ip);
-    layer.open({
+    W.open({
       type: 1, title: 'Add to IP blacklist', area: ['420px', 'auto'], btn: ['Confirm', 'Cancel'],
       content: '<div class="wp-g-dlg"><div>Add <b>' + esc(ip) + '</b> to the IP blacklist? Every request from it is dropped from now on.</div>' +
         (v4 ? '<label class="wp-g-chk" style="margin-top:12px"><input type="checkbox" id="wp-bl-seg"> Do you pull the entire IP section? (' +
@@ -96,7 +96,7 @@
       layer.msg('The URI of the current IP is the root directory, and false alarm operations cannot be performed!', { icon: 2 });
       return;
     }
-    layer.confirm('After adding to the URL whitelist, this URL will no longer be defended. Do you want to continue the operation?' +
+    W.confirm('After adding to the URL whitelist, this URL will no longer be defended. Do you want to continue the operation?' +
       '<div style="margin-top:8px;color:#909399;word-break:break-all">' + esc(u) + '</div>',
       { icon: 3, title: 'Add to URL whitelist' }, function (i) {
         layer.close(i);
@@ -180,7 +180,7 @@
   function clearSiteLog() {
     post('get_log_dates', {}, function (r) {
       S.blSites = r.sites || [];
-      layer.open({
+      W.open({
         type: 1, title: 'Clear log', area: ['440px', 'auto'], btn: ['Confirm', 'Cancel'],
         content: '<div class="wp-g-dlg"><div class="wp-g-row"><div class="wp-g-rl">Site</div><div class="wp-g-rc">' +
           siteSelect('wp-bl-csite', true) + '</div></div>' +
@@ -251,7 +251,7 @@
       (v === '' || v == null ? '<span style="color:#c0c4cc">Empty</span>' : v) + (extra || '') + '</div></div>';
   }
   function interceptDetail(x) {
-    layer.open({
+    W.open({
       type: 1, title: 'Details [' + unesc(x.ip) + ']', area: ['680px', 'auto'], maxHeight: 600,
       content: '<div class="wp-g-dlg wp-det">' +
         detLine('Time', x.time) + detLine('Attack IP', x.ip + ' <span style="color:#909399">(' + ipCell(unesc(x.ip), unesc(x.location)) + ')</span>') +
@@ -275,13 +275,13 @@
     bindSearch('wp-ban-q', function (q) { S.banQ = q; loadBans(1); });
     $('#wp-ban-export').on('click', function () { post('ban_export', { q: S.banQ || '' }, download); });
     $('#wp-ban-clear').on('click', function () {
-      layer.confirm('Clear all blocked log records, but blocked IPs will not be unblocked!', { icon: 3, title: 'Clear log' }, function (i) {
+      W.confirm('Clear all blocked log records, but blocked IPs will not be unblocked!', { icon: 3, title: 'Clear log' }, function (i) {
         layer.close(i);
         post('ban_clear', {}, function (rr) { reply(rr, function () { loadBans(1); }); });
       });
     });
     $('#wp-ban-all').on('click', function () {
-      layer.confirm('Do you want to unblock all IPs from the firewall?', { icon: 3, title: 'Unblock IP address' }, function (i) {
+      W.confirm('Do you want to unblock all IPs from the firewall?', { icon: 3, title: 'Unblock IP address' }, function (i) {
         layer.close(i);
         post('unban_all', {}, function (rr) { reply(rr, function () { setTimeout(function () { loadBans(1); }, 400); }); });
       });
@@ -320,14 +320,14 @@
       $('.ban-ip').on('click', function () { blockIp(S.banRows[$(this).data('i')].ip); });
       $('.ban-un').on('click', function () {
         var ip = S.banRows[$(this).data('i')].ip;
-        layer.confirm('Do you want to unblock IP [' + esc(ip) + '] from the firewall', { icon: 3, title: 'Unblock IP address' }, function (i) {
+        W.confirm('Do you want to unblock IP [' + esc(ip) + '] from the firewall', { icon: 3, title: 'Unblock IP address' }, function (i) {
           layer.close(i);
           post('unban', { ip: ip }, function (rr) { reply(rr, function () { setTimeout(function () { loadBans(S.banPage); }, 400); }); });
         });
       });
       $('.ban-det').on('click', function () {
         var x = S.banRows[$(this).data('i')];
-        layer.open({
+        W.open({
           type: 1, title: 'Details [' + x.ip + ']', area: ['620px', 'auto'],
           content: '<div class="wp-g-dlg wp-det">' + detLine('Start time', fmtTime(x.start)) +
             detLine('Unblock time', fmtTime(x.until)) + detLine('User IP', esc(x.ip) + ' (' + ipCell(x.ip, x.location) + ')') +
@@ -370,7 +370,7 @@
     $('#wp-bl-body').html(h);
     bindSearch('wp-hit-q', function (q) { S.hitQ = q; loadHits(1); });
     $('#wp-hit-clear').on('click', function () {
-      layer.confirm('Note: Rule hit records cannot be restored after being cleared!', { icon: 3, title: 'Clear rule hit records' }, function (i) {
+      W.confirm('Note: Rule hit records cannot be restored after being cleared!', { icon: 3, title: 'Clear rule hit records' }, function (i) {
         layer.close(i);
         post('rulehit_clear', {}, function (rr) { reply(rr, function () { loadHits(1); }); });
       });
@@ -380,7 +380,7 @@
   }
   function recordTypeDialog() {
     var t = S.hitType || 'all';
-    layer.open({
+    W.open({
       type: 1, title: 'Configure record type', area: ['400px', 'auto'], btn: ['Save', 'Cancel'],
       content: '<div class="wp-g-dlg"><div style="display:flex;gap:24px">' +
         '<label class="wp-g-chk"><input type="checkbox" id="wp-ht-i"' + (t === 'all' || t === 'intercept' ? ' checked' : '') + '> Intercept</label>' +

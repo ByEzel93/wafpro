@@ -168,7 +168,7 @@
 
     $('#rp-body').on('click', '.rp-bl', function () {
       var ip = $(this).closest('tr').data('ip');
-      layer.confirm('Add <b>' + esc(ip) + '</b> to the IP blacklist?', { icon: 3, title: 'Blacklist IP' }, function (i) {
+      W.confirm('Add <b>' + esc(ip) + '</b> to the IP blacklist?', { icon: 3, title: 'Blacklist IP' }, function (i) {
         layer.close(i);
         post('list_add', { list_name: 'ip_black', value: ip }, function (rr) {
           layer.msg(rr.msg, { icon: rr.status ? 1 : 2 });
@@ -230,7 +230,7 @@
       h += '</div><div class="wp-mod-foot">' +
         '<span class="wp-btn" id="rp-d-bl">Add to blacklist</span>' +
         '<span class="wp-btn primary" id="rp-d-close">Close</span></div></div>';
-      var idx = layer.open({ type: 1, title: false, closeBtn: 1, area: ['680px', '600px'], content: h });
+      var idx = W.open({ type: 1, title: false, closeBtn: 1, area: ['680px', '600px'], content: h });
       $('#rp-d-close').on('click', function () { layer.close(idx); });
       $('#rp-d-bl').on('click', function () {
         post('list_add', { list_name: 'ip_black', value: ip }, function (rr) {

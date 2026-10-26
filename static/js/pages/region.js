@@ -113,7 +113,7 @@
     });
     $('#wp-body').on('click', '.rg-del', function () {
       var id = $(this).closest('tr').data('id');
-      layer.confirm('Delete this region restriction?', { icon: 3, title: 'Delete' }, function (i) {
+      W.confirm('Delete this region restriction?', { icon: 3, title: 'Delete' }, function (i) {
         layer.close(i);
         post('region_rule_del', { id: id }, function (rr) {
           layer.msg(rr.msg, { icon: rr.status ? 1 : 2 });
@@ -126,7 +126,7 @@
   /* ---- online HTML editor (Region Response, Traffic Limit web content) ----
      o: { title, html, def, hint, save(html, done) } */
   function htmlEditDialog(o) {
-    var idx = layer.open({
+    var idx = W.open({
       type: 1, title: o.title, area: ['900px', '600px'], btn: ['Save', 'Restore default', 'Cancel'],
       content: '<div class="wp-g-dlg" style="height:100%;display:flex;flex-direction:column;box-sizing:border-box">' +
         (o.hint ? '<div style="color:#909399;font-size:12px;margin-bottom:8px">' + esc(o.hint) + '</div>' : '') +
@@ -161,7 +161,7 @@
       '<div class="wp-ra-body" id="ra-body"></div>' +
       '<div id="ra-cost" class="wp-cost" style="margin-top:8px"></div></div>';
 
-    var idx = layer.open({
+    var idx = W.open({
       type: 1, title: 'Add Region Restriction', area: ['760px', '560px'], btn: ['Confirm', 'Cancel'],
       content: h, success: draw,
       yes: function () {

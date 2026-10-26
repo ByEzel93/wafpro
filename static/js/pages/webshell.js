@@ -65,7 +65,7 @@
         var f = files[$(this).data('i')];
         post('webshell_view', { file: f.file }, function (rr) {
           if (!rr.status) return layer.msg(rr.msg, { icon: 2 });
-          layer.open({ type: 1, title: esc(f.file), area: ['900px', '600px'],
+          W.open({ type: 1, title: esc(f.file), area: ['900px', '600px'],
             content: '<div style="padding:14px"><div style="margin-bottom:10px;font-size:12px">' +
               f.hits.map(function (x) { return '<div><b>' + esc(x.desc) + '</b> — line ' + x.line + '</div>'; }).join('') +
               '</div><pre style="white-space:pre-wrap;word-break:break-all;font-size:12px;background:#f7f8fa;padding:12px;border-radius:6px;max-height:460px;overflow:auto">' +
@@ -74,7 +74,7 @@
       });
       $('.ws-quar').on('click', function () {
         var f = files[$(this).data('i')];
-        layer.confirm('Move ' + esc(f.file) + ' to quarantine? The site loses this file until restored.', { title: 'Quarantine' }, function (i) {
+        W.confirm('Move ' + esc(f.file) + ' to quarantine? The site loses this file until restored.', { title: 'Quarantine' }, function (i) {
           layer.close(i);
           post('webshell_quarantine', { file: f.file }, function (rr) { layer.msg(rr.msg, { icon: rr.status ? 1 : 2 }); if (rr.status) pageWebshell(); });
         });
@@ -87,7 +87,7 @@
       });
       $('.ws-purge').on('click', function () {
         var id = $(this).data('id');
-        layer.confirm('Delete this file permanently? This cannot be undone.', { title: 'Delete' }, function (i) {
+        W.confirm('Delete this file permanently? This cannot be undone.', { title: 'Delete' }, function (i) {
           layer.close(i);
           post('webshell_delete', { id: id }, function (rr) { layer.msg(rr.msg, { icon: rr.status ? 1 : 2 }); if (rr.status) pageWebshell(); });
         });
