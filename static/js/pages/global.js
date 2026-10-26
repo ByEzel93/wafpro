@@ -32,267 +32,151 @@
     });
   }
 
-  // one grouped card: shown only when its sub-tab (or All) is active
-  function gcard(group, ico, title, inner) {
-    return '<div class="wp-gc" data-g="' + group + '">' +
-      '<div class="wp-card" style="max-width:820px;margin-top:14px"><div class="wp-card-h">' +
-      ico + '<span class="t">' + title + '</span></div>' + inner + '</div></div>';
+  /* ---------------- Global: one table, like the stock WAF ----------------
+     Name | Description | Resp | Status | OPT. A protection runs only when its
+     switch here AND the site's own switch (WebSite > Modify) are on; a few
+     rows (Non-browser, From-data, HTTP package) switch a protection on for
+     every site instead. OPT opens the row's settings. */
+  var RESP_CODES = [[200, '(200) Normal'], [404, '(404) File does not exist'], [403, '(403) Access denied'],
+                    [444, '(444) Close connection'], [500, '(500) Application error'],
+                    [502, '(502) Connection timed out'], [503, '(503) Server unavailable']];
+
+  function saveCfg(patch, done) {
+    post('save_config', { config: JSON.stringify(patch) }, function (rr) {
+      layer.msg(rr.msg, { icon: rr.status ? 1 : 2 });
+      if (rr.status && done) done();
+    });
   }
 
-  // section header + feature cards, so each setting reads as its own row
-  function gsec(group, text) {
-    return '<div class="wp-gc" data-g="' + group + '"><div class="wp-gsec">' + text + '</div></div>';
-  }
-  function fcard(group, title, desc, controls, body, hero) {
-    var head = '<div style="display:flex;align-items:center;gap:20px">' +
-      '<div class="wp-fc-l"><div class="wp-fc-t">' + title + '</div>' +
-      (desc ? '<div class="wp-fc-d">' + desc + '</div>' : '') + '</div>' +
-      '<div class="wp-fc-r">' + (controls || '') + '</div></div>';
-    return '<div class="wp-gc" data-g="' + group + '">' +
-      '<div class="wp-fc' + (hero ? ' hero' : '') + (body ? ' wp-fc-col' : '') + '">' +
-      head + (body ? '<div class="wp-fc-body">' + body + '</div>' : '') + '</div></div>';
+  // the rows; resp = config key of the response code, sw = config key of the
+  // switch (or a function for the special ones), ops = OPT buttons
+  function globalRows(c, extra) {
+    var mal = extra.mal || {}, sp = extra.sp || {}, idc = extra.idc || {};
+    return [
+      { name: 'CC defense', desc: 'Defense against CC attacks. The initial rule is what a new site starts with.',
+        resp: 'cc_status', sw: 'm_cc', ops: [['Initial rule', ccRuleDialog]] },
+      { name: 'Request defense', desc: 'Malicious request blocking threshold: an IP that trips too many rules is banned for a while.',
+        resp: 'black_status', sw: function (on) { saveCfg({ retry: on ? (c.retry || 6) : 0 }, route); }, on: c.retry > 0,
+        ops: [['Initial rule', toleranceDialog]] },
+      { name: 'IP whitelist', desc: 'All rules are invalid for the IP whitelist.', ops: [['Conf', gotoList('ip_white')]] },
+      { name: 'IP blacklist', desc: 'Ban access to the IP of all websites.', resp: 'black_status', ops: [['Conf', gotoList('ip_black')]] },
+      { name: 'URL whitelist', desc: 'Most rules are invalid for URL whitelist.', ops: [['Conf', gotoList('url_white')]] },
+      { name: 'URL blacklist', desc: 'Prohibit access to the specified URL.', resp: 'black_status', ops: [['Conf', gotoList('url_black')]] },
+      { name: 'UA whitelist', desc: 'User-Agent whitelist in the initialization phase.', ops: [['Conf', gotoList('ua_white')]] },
+      { name: 'UA blacklist', desc: 'User-Agent blacklist in the initialization phase.', resp: 'ua_status', ops: [['Conf', gotoList('ua_black')]] },
+      { name: 'Spider pond', desc: 'Verified search-crawler IPs from the crawlers\' own published lists' +
+          (sp.have ? ' (' + num(sp.count) + ' ranges).' : ' — not downloaded yet.'),
+        sw: 'm_spider', ops: [['Conf', spiderDialog], ['Sync', function () { syncList('spider_update'); }]] },
+      { name: 'Non-browser', desc: 'Intercept non-browser requests, this switch will apply to all websites.',
+        sw: 'browser_all' },
+      { name: 'HTTP filter', desc: 'Request type filtering / request header filtering / request shape limits.',
+        resp: 'method_status', ops: [['Conf', function () { httpFilterDialog(extra.methods, extra.hdr); }]] },
+      { name: 'GET-param filter', desc: 'SQL injection and XSS attacks in the URI and URI parameters.',
+        resp: 'get_status', sw: 'm_get', ops: [['Rule', function () { ruleSetDialog('get'); }], ['Resp', blockPage]] },
+      { name: 'UA filter', desc: 'Usually used to filter browsers, spiders and some automatic scanners.',
+        resp: 'ua_status', sw: 'm_ua', ops: [['Rule', function () { ruleSetDialog('ua'); }], ['Resp', blockPage]] },
+      { name: 'POST filter', desc: 'Filter common SQL injection and XSS attacks in POST parameters (form and JSON).',
+        resp: 'post_status', sw: 'm_post', ops: [['Rule', function () { ruleSetDialog('post'); }], ['Resp', blockPage]] },
+      { name: 'Cookie filter', desc: 'Filter penetration attacks initiated by cookies.',
+        resp: 'cookie_status', sw: 'm_cookie', ops: [['Rule', function () { ruleSetDialog('cookie'); }], ['Resp', blockPage]] },
+      { name: 'Scanner', desc: 'Filter penetration testing of common scan testing tools.',
+        resp: 'scan_status', sw: 'm_scan', ops: [['Conf', function () { ruleSetDialog('scan'); }]] },
+      { name: 'N-day exploits', desc: 'Virtual patches for public CVEs (PHP-CGI, ThinkPHP, PHPUnit, Ignition, Spring, Struts, F5...).',
+        resp: 'get_status', sw: 'm_nday', ops: [['Conf', function () { ruleSetDialog('nday'); }]] },
+      { name: 'From-data', desc: 'Form-data protocol parameter transfer specification, applied to all websites.',
+        resp: 'php2shell_status', sw: 'form_all' },
+      { name: 'PHP2Shell guard', desc: 'Known triggers of CVE-2026-109618/109619 in PHP uploads. Updating PHP is the real fix.',
+        resp: 'php2shell_status', sw: 'm_php2shell', ops: [['Conf', function () { php2shellDialog(c); }]] },
+      { name: 'HTTP package', desc: 'Block oversized request bodies (uploads excluded) on every website.',
+        resp: 'header_status', sw: 'http_all', ops: [['Conf', function () { httpPackageDialog(c); }]] },
+      { name: 'Content replace', desc: 'Replace set sensitive text in the pages of every website.',
+        ops: [['Conf', function () { W.siteRules('*', 'repl'); }]] },
+      { name: 'URL keyword', desc: 'Intercept illegal words from the URL.', resp: 'black_status',
+        ops: [['Conf', gotoList('url_keyword')]] },
+      { name: 'Illegal word', desc: 'Block words or phrases in the URL and request body.', resp: 'black_status',
+        ops: [['Conf', function () { wordListDialog('sensitive', 'Illegal word block', 'Illegal word or regex'); }]] },
+      { name: 'API defense', desc: 'API interface defense: allowed methods and per-IP rate for API paths, on every website.',
+        ops: [['Conf', function () { W.siteRules('*', 'api'); }]] },
+      { name: 'Malicious IP feed', desc: 'Public abuse feeds (botnets, repeat attackers)' +
+          (mal.have ? ' — ' + num(mal.count) + ' ranges, updated ' + esc(mal.updated) + '.' : ' — not downloaded yet.'),
+        resp: 'black_status', sw: function (on, $cb) {
+          post('malicious_toggle', { open: on ? 1 : 0 }, function (rr) {
+            layer.msg(rr.msg, { icon: rr.status ? 1 : 2 }); if (!rr.status) $cb.prop('checked', !on);
+          });
+        }, on: !!mal.open, ops: [['Sync', function () { syncList('malicious_update'); }]] },
+      { name: 'IDC list', desc: 'Cloud / datacenter address space for the per-site IDC interception switch' +
+          (idc.have ? ' — ' + num(idc.count) + ' ranges.' : ' — not downloaded yet.'),
+        ops: [['Sync', function () { syncList('idc_update'); }]] },
+      { name: 'Static file protection', desc: 'Count static files (JS, CSS, images) toward CC. Off by default — a page pulls many.',
+        sw: 'static_protect' },
+      { name: 'Block page', desc: 'The page a blocked visitor sees for 4xx responses, and the browser check page.',
+        sw: 'block_page', ops: [['Resp', blockPage], ['Check page', function () { pageEditor('challenge'); }]] },
+      { name: 'Logging', desc: 'Write blocks to /www/wwwlogs/wafpro/, kept for ' + (c.log_save || 30) + ' days.',
+        sw: 'log', ops: [['Conf', function () { logDialog(c); }]] }
+    ];
   }
 
   function renderGlobal(c, m, hl, sp, ml, senList) {
     var e = c.engine || {};
-    S.gSub = S.gSub || 'all';
-    var SUBS = [['all', 'All'], ['cc', 'CC defense'], ['access', 'Access filter'],
-                ['vuln', 'Website vulnerability defense'], ['sensitive', 'Sensitive words']];
+    var rows = globalRows(c, { mal: ml, sp: sp, idc: S.idcStatus, methods: m, hdr: hl });
+    S.gRows = rows;
 
-    var h = '<div class="wp-subtabs" id="g-subs">' + SUBS.map(function (x) {
-      return '<span class="wp-subtab' + (x[0] === S.gSub ? ' on' : '') + '" data-g="' + x[0] + '">' + x[1] + '</span>';
-    }).join('') + '</div>';
-    h += '<div id="g-cards" style="max-width:1080px">';
+    var h = '<div class="wp-card wp-g-head">' +
+      '<div class="wp-g-item"><span class="wp-g-lbl">Firewall switch</span>' + sw('g-open', c.open) + '</div>' +
+      '<div class="wp-g-item"><span class="wp-g-lbl">Engine wired into nginx</span>' + sw('g-wired', e.wired) + '</div>' +
+      '<div class="wp-g-state">' + engineStatusText(e, c.health) + '</div>' +
+      '<div class="wp-g-acts">' +
+        (e.installed && !e.current ? '<span class="wp-btn primary" id="g-engine-update">Update engine</span>' : '') +
+        '<span class="wp-btn" id="g-export">Export</span><span class="wp-btn" id="g-import">Import</span>' +
+        '<span class="wp-btn" id="g-restore">Restore defaults</span></div></div>';
 
-    if (!e.wired) {
-      h += '<div class="wp-gc" data-g="all"><div class="wp-note" style="margin-top:12px">' + icoWarn() +
-        ' The engine is not wired into nginx, so nothing here is enforced yet.</div></div>';
-    }
-
-    /* ===== Global ===== */
-    h += gsec('all', 'Global');
-    h += fcard('all', 'Protection switch', 'All protection is off when this switch is off.',
-      sw('g-open', c.open) +
-      '<span class="wp-btn" id="g-export">Export</span>' +
-      '<span class="wp-btn" id="g-import">Import</span>' +
-      '<span class="wp-btn" id="g-restore">Restore defaults</span>', '', true);
-    h += fcard('all', 'Engine wired into nginx',
-      'Installs our lua into nginx. Tested before apply, rolled back on failure.',
-      sw('g-wired', e.wired));
-    h += fcard('all', 'Engine status', engineStatusText(e, c.health),
-      (e.installed && !e.current
-        ? '<span class="wp-btn primary" id="g-engine-update">Update engine</span>' : '') +
-      '<span class="wp-btn" id="g-selftest">Simulated attack</span>');
-
-    /* ===== CC defense ===== */
-    h += gsec('cc', 'CC defense');
-    h += fcard('cc', 'Request defence (auto-ban)',
-      'An IP that trips too many rules is blocked outright for a while. Banned IPs show under Blockade.',
-      '<span class="wp-btn" id="g-save-ab">Set rule</span>',
-      '<div style="display:flex;flex-wrap:wrap;gap:16px;align-items:center">' +
-        '<span>Ban after <input class="wp-in" id="g-retry" type="number" style="width:70px" value="' + (c.retry || 0) +
-        '"> trips within <input class="wp-in" id="g-retry-cycle" type="number" style="width:70px" value="' + (c.retry_cycle || 60) + '"> s</span>' +
-        '<span>Ban duration <input class="wp-in" id="g-retry-time" type="number" style="width:80px" value="' + (c.retry_time || 600) + '"> s</span>' +
-      '</div>');
-    h += fcard('cc', 'Static file protection',
-      'CC does not count static files (JS, CSS, images, fonts) by default — a page pulls many. Turn on only if static traffic is being abused.',
-      sw('g-static', c.static_protect));
-    var mhave = ml && ml.have;
-    h += fcard('cc', 'Malicious IP feed',
-      'Public abuse feeds (botnets, repeat attackers). When on, blocked on every site. ' +
-      (mhave ? num(ml.count) + ' ranges, updated ' + esc(ml.updated) : '<span style="color:var(--wp-red)">not downloaded</span>'),
-      sw('g-mal', ml && ml.open) + '<span class="wp-btn" id="g-mal-update">' + (mhave ? 'Synchronize' : 'Download') + '</span>');
-    var idc = S.idcStatus || {};
-    h += fcard('cc', 'Datacenter (IDC) IPs',
-      'Cloud provider address space for the per-site IDC interception switch. ' +
-      (idc.have ? num(idc.count) + ' ranges from ' + esc((idc.sources || []).join(', ')) + ', updated ' + esc(idc.updated)
-                : '<span style="color:var(--wp-red)">not downloaded — IDC interception does nothing</span>'),
-      '<span class="wp-btn" id="g-idc">' + (idc.have ? 'Synchronize' : 'Download') + '</span>');
-    h += fcard('cc', 'Escalating bans',
-      'An IP banned again within a day is banned for longer each time (ban time &times; times banned, up to 24 hours).',
-      sw('g-escalate', c.ban_escalate !== false));
-    var have = sp && sp.have;
-    h += fcard('cc', 'Verified crawlers',
-      'Backs the Fake spider switch on each site. ' +
-      (have ? '<b>' + num(sp.count) + '</b> ranges from ' + esc((sp.sources || []).join(', ')) + ', updated ' + esc(sp.updated)
-            : '<span style="color:var(--wp-red)">not downloaded — Fake spider does nothing</span>'),
-      '<span class="wp-btn" id="g-spider">' + (have ? 'Synchronize' : 'Download') + '</span>');
-
-    /* ===== Access filter ===== */
-    h += gsec('access', 'Access filter');
-    h += fcard('access', 'Logging', 'Write blocks to /www/wwwlogs/wafpro/.',
-      'Keep <input class="wp-in" id="g-logsave" type="number" style="width:64px" value="' + (c.log_save || 30) + '"> days' +
-      sw('g-log', c.log) + '<span class="wp-btn" id="g-save-log">Save</span>');
-    h += fcard('access', 'Behind CDN',
-      'Read the visitor IP from X-Forwarded-For. Only if a proxy really sits in front — otherwise IPs can be spoofed.',
-      sw('g-cdn', c.cdn));
-    var allM = (m && m.all) || [];
-    var onM = {}; ((m && m.data) || []).forEach(function (x) { onM[x] = 1; });
-    h += fcard('access', 'Allowed HTTP methods', 'Anything unchecked is refused. GET cannot be turned off.',
-      '<span class="wp-btn primary" id="g-save-m">Save</span>',
-      '<div style="display:flex;flex-wrap:wrap;gap:16px">' + allM.map(function (x) {
-        return '<label style="display:flex;align-items:center;gap:6px;cursor:pointer">' +
-          '<input type="checkbox" class="g-m" value="' + x + '"' + (onM[x] ? ' checked' : '') +
-          (x === 'GET' ? ' disabled' : '') + '>' + x + '</label>';
-      }).join('') + '</div>');
-    h += fcard('access', 'Request shape limits',
-      'Parameter and header floods: no real client sends thousands of fields.',
-      '<span class="wp-btn primary" id="g-save-shape">Save</span>',
-      '<div style="display:flex;flex-wrap:wrap;gap:20px">' +
-        '<label style="display:flex;align-items:center;gap:8px">Max parameters (query or form)' +
-        '<input class="wp-in" id="g-max-params" type="number" style="width:90px" value="' + (c.max_params || 8000) + '"></label>' +
-        '<label style="display:flex;align-items:center;gap:8px">Max headers' +
-        '<input class="wp-in" id="g-max-headers" type="number" style="width:90px" value="' + (c.max_headers || 800) + '"></label>' +
-      '</div>');
-    var lims = (hl && hl.data) || [];
-    h += fcard('access', 'Header size limits', 'Requests with a header longer than this are refused.',
-      '<span class="wp-btn primary" id="g-save-h">Save</span>',
-      '<div style="display:flex;flex-wrap:wrap;gap:20px">' + lims.map(function (x) {
-        return '<label style="display:flex;align-items:center;gap:8px">' + esc(x.h) +
-          '<input class="wp-in g-h" data-h="' + esc(x.h) + '" type="number" style="width:90px" value="' + x.max + '"> B</label>';
-      }).join('') + '</div>');
-
-    /* ===== Website vulnerability defense ===== */
-    h += gsec('vuln', 'Website vulnerability defense');
-    var rcRow = function (id, label, val) {
-      return '<label style="display:flex;align-items:center;gap:8px">' +
-        '<span style="width:130px;color:var(--wp-text2)">' + label + '</span>' + statusSel(id, val) + '</label>';
-    };
-    h += fcard('vuln', 'Response codes', 'What blocked visitors receive, per protection type.',
-      '<span class="wp-btn primary" id="g-save">Save</span>',
-      '<div style="display:grid;grid-template-columns:1fr 1fr;gap:12px 30px">' +
-        rcRow('g-s-get', 'SQL/XSS query', c.get_status) + rcRow('g-s-post', 'SQL/XSS body', c.post_status) +
-        rcRow('g-s-cookie', 'Cookie', c.cookie_status) + rcRow('g-s-ua', 'User-Agent', c.ua_status) +
-        rcRow('g-s-scan', 'Scanner paths', c.scan_status) + rcRow('g-s-cc', 'CC defense', c.cc_status) +
-        rcRow('g-s-black', 'Blacklist / ban', c.black_status) + rcRow('g-s-method', 'Bad method', c.method_status) +
-        rcRow('g-s-header', 'Oversized header', c.header_status) +
-        rcRow('g-s-php2shell', 'PHP2Shell / form-data', c.php2shell_status) +
-        rcRow('g-s-custom', 'Custom rule (block)', c.custom_status) +
-      '</div>');
-    var mpIn = function (id, label, val, unit) {
-      return '<label style="display:flex;align-items:center;gap:8px"><span style="width:170px;color:var(--wp-text2)">' + label +
-        '</span><input class="wp-in" id="' + id + '" type="number" min="1" style="width:90px" value="' + val + '"> ' +
-        '<span class="wp-unit">' + (unit || '') + '</span></label>';
-    };
-    h += fcard('vuln', 'PHP2Shell guard limits',
-      'CVE-2026-109618 / 109619 are reached through PHP&apos;s multipart parser. These bounds apply on every site ' +
-      'with the PHP2Shell guard on (WebSite &rsaquo; Modify). <b>Updating PHP is the only complete fix</b> — ' +
-      'the Simulated attack check lists any unpatched PHP on this server.',
-      '<span class="wp-btn primary" id="g-save-mp">Save</span>',
-      '<div style="display:grid;grid-template-columns:1fr 1fr;gap:12px 30px">' +
-        mpIn('g-mp-parts', 'Max parts per request', c.mp_max_parts || 500) +
-        mpIn('g-mp-headers', 'Max headers per part', c.mp_max_headers || 16) +
-        mpIn('g-mp-depth', 'Max field nesting a[b][c]', c.mp_max_depth || 10, 'levels') +
-        mpIn('g-mp-empty', 'Max empty file fields', c.mp_max_empty || 50) +
-      '</div>');
-    h += fcard('vuln', 'Filter rule sets',
-      'The regular expressions behind the GET / POST / Cookie / User-Agent / Scanner filters and the N-day virtual patches. ' +
-      'Turn single rules off when one misfires on your site, or add your own.',
-      '<span class="wp-btn primary" id="g-rulesets">Edit rules</span>');
-    h += fcard('vuln', 'Block &amp; verification pages',
-      'The page a blocked visitor sees (for 4xx responses; 444 just closes the connection), and the browser check page.',
-      sw('g-blockpage', c.block_page !== false) +
-      '<span class="wp-btn" id="g-edit-block">Edit block page</span>' +
-      '<span class="wp-btn" id="g-edit-challenge">Edit check page</span>');
-
-    /* ===== Sensitive words ===== */
-    h += gsec('sensitive', 'Sensitive words');
-    var words = (senList && senList.data) || [];
-    h += fcard('sensitive', 'Sensitive words',
-      'A request is blocked if any appears in its URL, query string or form body. Plain text or regex.',
-      '', '<div style="display:flex;gap:8px;margin-bottom:12px">' +
-        '<input class="wp-in" id="g-sen-in" placeholder="word or regex, e.g. (?i)union\\s+select" style="flex:1">' +
-        '<span class="wp-btn primary" id="g-sen-add">Add</span></div>' +
-      '<table class="wp-tbl"><thead><tr><th>Word / pattern</th><th style="width:80px">Operate</th></tr></thead><tbody>' +
-      (words.length ? words.map(function (x) {
-        return '<tr><td style="font-family:ui-monospace,Menlo,monospace;font-size:12px;word-break:break-all">' + esc(x.value) + '</td>' +
-          '<td><a href="javascript:;" class="g-sen-del" data-i="' + x.index + '" style="color:var(--wp-green)">Delete</a></td></tr>';
-      }).join('') : '<tr><td colspan="2" style="padding:20px;text-align:center;color:var(--wp-text3)">No sensitive words yet.</td></tr>') +
-      '</tbody></table>');
-
-    h += '</div>';
+    h += '<div class="wp-card"><div class="wp-site-box"><table class="wp-site-tbl wp-g-tbl"><thead><tr>' +
+      '<th style="width:170px">Name</th><th>Description</th><th style="width:90px;text-align:center">Resp</th>' +
+      '<th style="width:80px;text-align:center">Status</th><th class="r" style="width:150px">OPT</th></tr></thead><tbody>' +
+      rows.map(function (r, i) {
+        var on = typeof r.sw === 'string' ? c[r.sw] === true : r.on;
+        return '<tr data-i="' + i + '"><td class="site">' + esc(r.name) + '</td>' +
+          '<td style="white-space:normal;color:#606266">' + r.desc + '</td>' +
+          '<td style="text-align:center">' + (r.resp ? '<span class="wp-lnk g-resp">' + (c[r.resp] || '-') + '</span>' : '<span style="color:#c0c4cc">--</span>') + '</td>' +
+          '<td style="text-align:center">' + (r.sw ? '<label class="wp-sw wp-sw-sm"><input type="checkbox" class="g-sw"' +
+            (on ? ' checked' : '') + '><span class="sl"></span></label>' : '<span style="color:#c0c4cc">--</span>') + '</td>' +
+          '<td class="r">' + (r.ops || []).map(function (o, j) {
+            return (j ? '<span class="sep"></span>' : '') + '<span class="wp-lnk g-op" data-j="' + j + '">' + o[0] + '</span>';
+          }).join('') + '</td></tr>';
+      }).join('') + '</tbody></table></div>' +
+      '<ul class="wp-site-tips">' +
+      '<li>Inheritance: the CC initial rule is what a new website starts with; use <b>Apply to all sites</b> in it to update existing ones.</li>' +
+      '<li>A protection runs only when it is on here <b>and</b> on the website (WebSite &rsaquo; Modify).</li>' +
+      '<li>Priority: IP whitelist &gt; IP blacklist &gt; UA whitelist &gt; UA blacklist &gt; URL whitelist &gt; URL blacklist &gt; ' +
+      'URL keyword &gt; Spider &gt; Region &gt; UA &gt; Scanner &gt; N-day &gt; GET &gt; Cookie &gt; POST &gt; Non-browser &gt; CC &gt; Traffic limit</li>' +
+      '</ul></div>';
     $('#wp-body').html(h);
-    applyGSub();
 
-    $('#g-subs .wp-subtab').on('click', function () {
-      S.gSub = $(this).data('g');
-      $('#g-subs .wp-subtab').removeClass('on'); $(this).addClass('on');
-      applyGSub();
+    $('#wp-body').on('click', '.g-resp', function () {
+      var r = rows[$(this).closest('tr').data('i')];
+      respDialog(r.name, r.resp, c[r.resp]);
+    });
+    $('#wp-body').on('change', '.g-sw', function () {
+      var r = rows[$(this).closest('tr').data('i')], on = this.checked;
+      if (typeof r.sw === 'function') return r.sw(on, $(this));
+      var p = {}; p[r.sw] = on;
+      saveCfg(p);
+      c[r.sw] = on;
+    });
+    $('#wp-body').on('click', '.g-op', function () {
+      var r = rows[$(this).closest('tr').data('i')];
+      r.ops[$(this).data('j')][1]();
     });
 
-    /* ---- handlers ---- */
-    function wire(on) { post('engine_wire', { open: on ? 1 : 0 }, function (rr) { layer.msg(rr.msg, { icon: rr.status ? 1 : 2 }); route(); }); }
-    $('#g-wired').on('change', function () { wire($(this).is(':checked')); });
-    function saveCore(extra) {
-      var cfg = { open: $('#g-open').is(':checked'), log: $('#g-log').is(':checked'),
-        log_save: parseInt($('#g-logsave').val() || 30, 10), cdn: $('#g-cdn').is(':checked'),
-        static_protect: $('#g-static').is(':checked') };
-      post('save_config', { config: JSON.stringify($.extend(cfg, extra || {})) },
-        function (rr) { layer.msg(rr.msg, { icon: rr.status ? 1 : 2 }); });
-    }
-    $('#g-open,#g-cdn,#g-static').on('change', function () { saveCore(); });
-    $('#g-save-log').on('click', function () { saveCore(); });
-    $('#g-save-ab').on('click', function () {
-      saveCore({ retry: parseInt($('#g-retry').val() || 0, 10),
-                 retry_cycle: parseInt($('#g-retry-cycle').val() || 60, 10),
-                 retry_time: parseInt($('#g-retry-time').val() || 600, 10) });
-    });
-    $('#g-save').on('click', function () {
-      saveCore({ get_status: +$('#g-s-get').val(), post_status: +$('#g-s-post').val(),
-        cookie_status: +$('#g-s-cookie').val(), ua_status: +$('#g-s-ua').val(),
-        scan_status: +$('#g-s-scan').val(), cc_status: +$('#g-s-cc').val(),
-        black_status: +$('#g-s-black').val(), method_status: +$('#g-s-method').val(),
-        header_status: +$('#g-s-header').val(), php2shell_status: +$('#g-s-php2shell').val(),
-        custom_status: +$('#g-s-custom').val() });
-    });
-    $('#g-save-mp').on('click', function () {
-      saveCore({ mp_max_parts: +$('#g-mp-parts').val(), mp_max_headers: +$('#g-mp-headers').val(),
-                 mp_max_depth: +$('#g-mp-depth').val(), mp_max_empty: +$('#g-mp-empty').val() });
-    });
-    $('#g-blockpage').on('change', function () { saveCore({ block_page: $(this).is(':checked') }); });
-    $('#g-edit-block').on('click', function () { pageEditor('block'); });
-    $('#g-edit-challenge').on('click', function () { pageEditor('challenge'); });
-    $('#g-selftest').on('click', function () { selfTestDialog(''); });
-    $('#g-rulesets').on('click', function () { ruleSetDialog('get'); });
-    $('#g-escalate').on('change', function () { saveCore({ ban_escalate: $(this).is(':checked') }); });
-    $('#g-save-shape').on('click', function () {
-      saveCore({ max_params: +$('#g-max-params').val(), max_headers: +$('#g-max-headers').val() });
-    });
-    $('#g-idc').on('click', function () {
-      var $b = $(this).text('...');
-      post('idc_update', {}, function (rr) { layer.msg(rr.msg, { icon: rr.status ? 1 : 2 }); if (rr.status) route(); else $b.text('Synchronize'); });
+    $('#g-open').on('change', function () { saveCfg({ open: this.checked }); });
+    $('#g-wired').on('change', function () {
+      var on = this.checked;
+      post('engine_wire', { open: on ? 1 : 0 }, function (rr) { layer.msg(rr.msg, { icon: rr.status ? 1 : 2 }); route(); });
     });
     $('#g-engine-update').on('click', function () {
       var ld = layer.msg('Updating engine...', { icon: 16, time: 0, shade: 0.3 });
       post('engine_update', {}, function (rr) { layer.close(ld); layer.msg(rr.msg, { icon: rr.status ? 1 : 2 }); route(); });
     });
-    $('#g-save-m').on('click', function () {
-      var ms = ['GET'];
-      $('.g-m:checked').each(function () { if (this.value !== 'GET') ms.push(this.value); });
-      post('save_methods', { methods: JSON.stringify(ms) }, function (rr) { layer.msg(rr.msg, { icon: rr.status ? 1 : 2 }); });
-    });
-    $('#g-save-h').on('click', function () {
-      var out = [];
-      $('.g-h').each(function () { out.push({ h: $(this).data('h'), max: parseInt($(this).val() || 0, 10) }); });
-      post('save_hdr_limits', { limits: JSON.stringify(out) }, function (rr) { layer.msg(rr.msg, { icon: rr.status ? 1 : 2 }); });
-    });
-    $('#g-mal').on('change', function () {
-      var on = $(this).is(':checked');
-      post('malicious_toggle', { open: on ? 1 : 0 }, function (rr) { layer.msg(rr.msg, { icon: rr.status ? 1 : 2 }); if (!rr.status) $('#g-mal').prop('checked', !on); });
-    });
-    $('#g-mal-update').on('click', function () { var $b = $(this).text('...'); post('malicious_update', {}, function (rr) { layer.msg(rr.msg, { icon: rr.status ? 1 : 2 }); if (rr.status) route(); else $b.text('Synchronize'); }); });
-    $('#g-spider').on('click', function () { var $b = $(this).text('...'); post('spider_update', {}, function (rr) { layer.msg(rr.msg, { icon: rr.status ? 1 : 2 }); if (rr.status) route(); else $b.text('Synchronize'); }); });
-
-    function senAdd() {
-      var v = ($('#g-sen-in').val() || '').trim(); if (!v) return;
-      post('list_add', { list_name: 'sensitive', value: v }, function (rr) { layer.msg(rr.msg, { icon: rr.status ? 1 : 2 }); if (rr.status) route(); });
-    }
-    $('#g-sen-add').on('click', senAdd);
-    $('#g-sen-in').on('keydown', function (ev) { if (ev.keyCode === 13) senAdd(); });
-    $('#g-cards').on('click', '.g-sen-del', function () {
-      post('list_del', { list_name: 'sensitive', index: $(this).data('i') }, function (rr) { layer.msg(rr.msg, { icon: rr.status ? 1 : 2 }); if (rr.status) route(); });
-    });
-
     $('#g-export').on('click', function () {
       post('export_config', {}, function (rr) {
         if (!rr.status) return layer.msg(rr.msg || 'error', { icon: 2 });
@@ -316,6 +200,206 @@
         layer.close(i);
         post('restore_config', {}, function (rr) { layer.msg(rr.msg, { icon: rr.status ? 1 : 2 }); if (rr.status) route(); });
       });
+    });
+  }
+
+  /* ---------------- row dialogs ---------------- */
+  function gDialog(title, w, body, onSave, saveText) {
+    var idx = layer.open({
+      type: 1, title: title, area: [w + 'px', 'auto'], closeBtn: 1, btn: [saveText || 'Save', 'Cancel'],
+      content: '<div class="wp-modal wp-g-dlg">' + body + '</div>',
+      yes: function () { onSave(function () { layer.close(idx); }); }
+    });
+    return idx;
+  }
+  function fRow(label, ctl, hint) {
+    return '<div class="wp-g-row"><div class="wp-g-rl">' + label + '</div><div class="wp-g-rc">' + ctl +
+      (hint ? '<div class="wp-g-hint">' + hint + '</div>' : '') + '</div></div>';
+  }
+  function nIn(id, v, w) { return '<input class="wp-in" id="' + id + '" type="number" min="0" style="width:' + (w || 90) + 'px" value="' + v + '">'; }
+
+  function respDialog(name, key, cur) {
+    gDialog('Set response code [' + esc(name) + ']', 380,
+      fRow('Response', '<select class="wp-in" id="g-rc" style="width:220px">' + RESP_CODES.map(function (x) {
+        return '<option value="' + x[0] + '"' + (x[0] === +cur ? ' selected' : '') + '>' + x[1] + '</option>';
+      }).join('') + '</select>'),
+      function (close) { var p = {}; p[key] = +$('#g-rc').val(); saveCfg(p, function () { close(); route(); }); }, 'Apply');
+  }
+
+  function ccRuleDialog() {
+    post('get_config', {}, function (c) {
+      var keyOpts = [['ip', 'IP'], ['url', 'URL with param'], ['path', 'URL without param'], ['ipua', 'IP+UA']];
+      var body =
+        fRow('Mode', '<select class="wp-in" id="cc-mode" style="width:220px">' +
+          '<option value="block"' + (c.cc_def_mode !== 'challenge' ? ' selected' : '') + '>General mode</option>' +
+          '<option value="challenge"' + (c.cc_def_mode === 'challenge' ? ' selected' : '') + '>Enhanced mode</option></select>',
+          'Enhanced: a client over the limit must pass browser verification (JavaScript) instead of being blocked; ' +
+          'verified browsers get 4x the allowance.') +
+        fRow('Request', '<div class="wp-g-radios">' + keyOpts.map(function (k) {
+          return '<label><input type="radio" name="cc-key" value="' + k[0] + '"' + ((c.cc_def_key || 'ip') === k[0] ? ' checked' : '') + '> ' + k[1] + '</label>';
+        }).join('') + '</div>', 'What one client is counted by. IP+UA separates many people behind one office/NAT address.') +
+        fRow('Cycle', nIn('cc-cycle', c.cc_def_cycle) + ' <span class="wp-unit">Sec</span>') +
+        fRow('Frequency', nIn('cc-limit', c.cc_def_limit) + ' <span class="wp-unit">Time(s)</span>') +
+        fRow('Block Time', nIn('cc-block', c.cc_def_block) + ' <span class="wp-unit">Sec</span>') +
+        fRow('Automatic mode', sw('cc-auto', c.cc_auto) +
+          '<div class="wp-g-hint">When on, enhanced mode switches on by itself when a website takes more than ' +
+          nIn('cc-auto-limit', c.cc_auto_limit, 80) + ' requests within ' + nIn('cc-auto-cycle', c.cc_auto_cycle, 70) +
+          ' seconds, and switches back off after ' + nIn('cc-auto-hold', c.cc_auto_hold, 70) + ' seconds.</div>') +
+        fRow('', '<label class="wp-g-chk"><input type="checkbox" id="cc-all"> Apply to all sites (overwrites each site\'s CC rule)</label>') +
+        '<ul class="wp-site-tips"><li>The setting here is the initial value, which will be inherited when a new site is added.</li>' +
+        '<li>Please do not set too strict CC rules, so as not to affect the normal user experience.</li></ul>';
+      gDialog('CC defense — initial rule', 640, body, function (close) {
+        var p = { cc_def_mode: $('#cc-mode').val(), cc_def_key: $('input[name=cc-key]:checked').val(),
+                  cc_def_cycle: +$('#cc-cycle').val(), cc_def_limit: +$('#cc-limit').val(), cc_def_block: +$('#cc-block').val(),
+                  cc_auto: $('#cc-auto').is(':checked'), cc_auto_limit: +$('#cc-auto-limit').val(),
+                  cc_auto_cycle: +$('#cc-auto-cycle').val(), cc_auto_hold: +$('#cc-auto-hold').val() };
+        var all = $('#cc-all').is(':checked');
+        saveCfg(p, function () {
+          if (!all) return close();
+          post('cc_apply_all', {}, function (rr) { layer.msg(rr.msg, { icon: rr.status ? 1 : 2 }); close(); });
+        });
+      });
+    });
+  }
+
+  function toleranceDialog() {
+    post('get_config', {}, function (c) {
+      gDialog('Set tolerance for malicious requests', 560,
+        fRow('Cycle', nIn('tl-cycle', c.retry_cycle) + ' <span class="wp-unit">Sec</span>') +
+        fRow('Frequency', nIn('tl-retry', c.retry) + ' <span class="wp-unit">Times</span>') +
+        fRow('Block Time', nIn('tl-time', c.retry_time) + ' <span class="wp-unit">Sec</span>') +
+        fRow('Escalate', sw('tl-esc', c.ban_escalate !== false),
+          'A repeat offender is banned longer each time (block time × times banned today, max 24h).') +
+        '<ul class="wp-site-tips"><li>Accumulated malicious requests exceeding Frequency within Cycle seconds block the IP for Block Time.</li>' +
+        '<li>Frequency 0 turns the auto-ban off.</li></ul>',
+        function (close) {
+          saveCfg({ retry_cycle: +$('#tl-cycle').val(), retry: +$('#tl-retry').val(), retry_time: +$('#tl-time').val(),
+                    ban_escalate: $('#tl-esc').is(':checked') }, function () { close(); route(); });
+        });
+    });
+  }
+
+  function httpFilterDialog(m, hl) {
+    var allM = (m && m.all) || [], onM = {};
+    ((m && m.data) || []).forEach(function (x) { onM[x] = 1; });
+    var lims = (hl && hl.data) || [];
+    post('get_config', {}, function (c) {
+      var body = '<div class="wp-g-sec">Request type filtering</div>' +
+        '<div class="wp-g-radios">' + allM.map(function (x) {
+          return '<label><input type="checkbox" class="hf-m" value="' + x + '"' + (onM[x] ? ' checked' : '') +
+            (x === 'GET' ? ' disabled' : '') + '> ' + x + '</label>';
+        }).join('') + '</div><div class="wp-g-hint">Unchecked methods are refused. GET cannot be turned off.</div>' +
+        '<div class="wp-g-sec">Request header filtering</div>' +
+        '<table class="wp-site-tbl" id="hf-tbl"><thead><tr><th>Header</th><th style="width:140px">Max length (B)</th><th class="r" style="width:70px"></th></tr></thead><tbody>' +
+        lims.map(function (x) {
+          return '<tr><td class="hf-h">' + esc(x.h) + '</td><td><input class="wp-in hf-v" type="number" style="width:110px" value="' + x.max + '"></td>' +
+            '<td class="r"><span class="wp-lnk hf-del">Delete</span></td></tr>';
+        }).join('') + '</tbody></table>' +
+        '<div style="display:flex;gap:8px;margin-top:8px"><input class="wp-in" id="hf-new-h" placeholder="Please enter the header name">' +
+        '<input class="wp-in" id="hf-new-v" type="number" placeholder="Length" style="width:110px">' +
+        '<span class="wp-btn" id="hf-add">Add</span></div>' +
+        '<div class="wp-g-sec">Request shape limits</div>' +
+        fRow('Max parameters', nIn('hf-params', c.max_params, 100), 'Query string or form fields in one request.') +
+        fRow('Max headers', nIn('hf-headers', c.max_headers, 100));
+      var idx = gDialog('HTTP request filtering', 640, body, function (close) {
+        var ms = ['GET'];
+        $('.hf-m:checked').each(function () { if (this.value !== 'GET') ms.push(this.value); });
+        var lim = [];
+        $('#hf-tbl tbody tr').each(function () { lim.push({ h: $(this).find('.hf-h').text(), max: +$(this).find('.hf-v').val() }); });
+        post('save_methods', { methods: JSON.stringify(ms) }, function (r1) {
+          post('save_hdr_limits', { limits: JSON.stringify(lim) }, function (r2) {
+            saveCfg({ max_params: +$('#hf-params').val(), max_headers: +$('#hf-headers').val() }, function () {
+              if (!r1.status || !r2.status) layer.msg((r1.status ? r2 : r1).msg, { icon: 2 });
+              close(); route();
+            });
+          });
+        });
+      });
+      $('#hf-tbl').on('click', '.hf-del', function () { $(this).closest('tr').remove(); });
+      $('#hf-add').on('click', function () {
+        var hname = ($('#hf-new-h').val() || '').trim().toLowerCase(), v = +$('#hf-new-v').val();
+        if (!hname || !v) return layer.msg('Enter a header name and a length', { icon: 0 });
+        $('#hf-tbl tbody').append('<tr><td class="hf-h">' + esc(hname) + '</td><td><input class="wp-in hf-v" type="number" style="width:110px" value="' + v + '"></td>' +
+          '<td class="r"><span class="wp-lnk hf-del">Delete</span></td></tr>');
+        $('#hf-new-h,#hf-new-v').val('');
+      });
+      return idx;
+    });
+  }
+
+  function php2shellDialog(c) {
+    gDialog('PHP2Shell guard limits', 560,
+      fRow('Max parts', nIn('mp-parts', c.mp_max_parts), 'multipart parts per request') +
+      fRow('Max headers per part', nIn('mp-headers', c.mp_max_headers)) +
+      fRow('Max field nesting', nIn('mp-depth', c.mp_max_depth), 'a[b][c]... levels') +
+      fRow('Max empty file fields', nIn('mp-empty', c.mp_max_empty)) +
+      '<ul class="wp-site-tips"><li>CVE-2026-109618 / 109619 are reached through PHP\'s multipart parser; these bounds remove the known triggers.</li>' +
+      '<li>Updating PHP (8.2.35, 8.3.36, 8.4.27, 8.5.12 or newer) is the only complete fix — Simulated attack lists any unpatched PHP.</li></ul>',
+      function (close) {
+        saveCfg({ mp_max_parts: +$('#mp-parts').val(), mp_max_headers: +$('#mp-headers').val(),
+                  mp_max_depth: +$('#mp-depth').val(), mp_max_empty: +$('#mp-empty').val() }, close);
+      });
+  }
+
+  function httpPackageDialog(c) {
+    gDialog('HTTP package', 480,
+      fRow('Max body', nIn('hp-kb', c.body_max_all) + ' <span class="wp-unit">KB</span>',
+        'Applies to every website without its own limit (WebSite › Modify). Uploads are excluded.'),
+      function (close) { saveCfg({ body_max_all: +$('#hp-kb').val() }, function () { close(); route(); }); });
+  }
+
+  function logDialog(c) {
+    gDialog('Logging', 420, fRow('Keep logs', nIn('lg-days', c.log_save) + ' <span class="wp-unit">days</span>'),
+      function (close) { saveCfg({ log_save: +$('#lg-days').val() }, function () { close(); route(); }); });
+  }
+
+  function spiderDialog() {
+    post('spider_status', {}, function (sp) {
+      gDialog('Spider pond', 520,
+        fRow('Ranges', '<b>' + num(sp.count || 0) + '</b>' + (sp.updated ? ' <span class="wp-unit">updated ' + esc(sp.updated) + '</span>' : '')) +
+        fRow('Sources', esc((sp.sources || []).join(', '))) +
+        '<ul class="wp-site-tips"><li>Each crawler\'s own published IP list. A client calling itself one of these crawlers from any other IP is a fake spider.</li>' +
+        '<li>Sync downloads the lists again.</li></ul>',
+        function (close) { close(); syncList('spider_update'); }, 'Sync now');
+    });
+  }
+
+  function syncList(action) {
+    var ld = layer.msg('Downloading...', { icon: 16, time: 0, shade: 0.3 });
+    post(action, {}, function (rr) { layer.close(ld); layer.msg(rr.msg, { icon: rr.status ? 1 : 2 }); if (rr.status) route(); });
+  }
+
+  function gotoList(key) {
+    return function () { S.listKey = key; S.listQ = ''; S.listPage = 1; S.tab = 'lists'; W.renderTabs(); route(); };
+  }
+  function blockPage() { pageEditor('block'); }
+
+  // a small list editor (Illegal word): add / delete regex entries
+  function wordListDialog(listName, title, ph) {
+    post('list_get', { list_name: listName }, function (r) {
+      var items = r.data || [];
+      var body = '<div style="display:flex;gap:8px;margin-bottom:10px"><input class="wp-in" id="wl-in" placeholder="' + esc(ph) + '" style="flex:1">' +
+        '<span class="wp-btn primary" id="wl-add">Add</span></div>' +
+        '<table class="wp-site-tbl"><thead><tr><th>Word / pattern</th><th class="r" style="width:80px">OPT</th></tr></thead><tbody>' +
+        (items.length ? items.map(function (x) {
+          return '<tr><td style="white-space:normal;word-break:break-all">' + esc(x.value) + '</td>' +
+            '<td class="r"><span class="wp-lnk wl-del" data-i="' + x.index + '">Delete</span></td></tr>';
+        }).join('') : '<tr><td colspan="2" class="wp-empty">Empty</td></tr>') + '</tbody></table>' +
+        '<ul class="wp-site-tips"><li>Please do not fill in randomly: all prohibited words should be complete words.</li></ul>';
+      layer.closeAll('page');
+      var idx = layer.open({ type: 1, title: title, area: ['600px', '520px'], content: '<div class="wp-modal wp-g-dlg">' + body + '</div>' });
+      $('#wl-add').on('click', function () {
+        var v = ($('#wl-in').val() || '').trim(); if (!v) return;
+        post('list_add', { list_name: listName, value: v }, function (rr) {
+          layer.msg(rr.msg, { icon: rr.status ? 1 : 2 }); if (rr.status) wordListDialog(listName, title, ph);
+        });
+      });
+      $('.wl-del').on('click', function () {
+        post('list_del', { list_name: listName, index: $(this).data('i') }, function (rr) {
+          layer.msg(rr.msg, { icon: rr.status ? 1 : 2 }); if (rr.status) wordListDialog(listName, title, ph);
+        });
+      });
+      return idx;
     });
   }
 
@@ -467,12 +551,27 @@
   // exports
   W.RULE_SETS = RULE_SETS;
   W.engineStatusText = engineStatusText;
-  W.fcard = fcard;
-  W.gcard = gcard;
-  W.gsec = gsec;
   W.pageEditor = pageEditor;
   W.pageGlobal = pageGlobal;
   W.renderGlobal = renderGlobal;
   W.ruleSetDialog = ruleSetDialog;
   W.selfTestDialog = selfTestDialog;
+  W.RESP_CODES = RESP_CODES;
+  W.blockPage = blockPage;
+  W.ccRuleDialog = ccRuleDialog;
+  W.fRow = fRow;
+  W.gDialog = gDialog;
+  W.globalRows = globalRows;
+  W.gotoList = gotoList;
+  W.httpFilterDialog = httpFilterDialog;
+  W.httpPackageDialog = httpPackageDialog;
+  W.logDialog = logDialog;
+  W.nIn = nIn;
+  W.php2shellDialog = php2shellDialog;
+  W.respDialog = respDialog;
+  W.saveCfg = saveCfg;
+  W.spiderDialog = spiderDialog;
+  W.syncList = syncList;
+  W.toleranceDialog = toleranceDialog;
+  W.wordListDialog = wordListDialog;
 })(window.WAFPRO = window.WAFPRO || {});

@@ -280,7 +280,7 @@ local SITE_NUM = { cc_limit = 120, cc_cycle = 60, cc_block = 600, crawl_limit = 
                    wait_limit = 200, body_max = 0 }
 local SITE_SET = { deny_ext = true, upload_ext = true }
 local SITE_LIST = { php_path = true }
-local SITE_STR = { cc_mode = 'block' }
+local SITE_STR = { cc_mode = 'block', cc_key = 'ip' }
 
 local function parse_sites(path)
     local t = {}
@@ -493,6 +493,41 @@ local function ipset(name)
              v6 = read_all(RULE_DIR .. name .. '.bin6') }
 end
 
+-- Global module switches gate the per-site ones: a protection runs only when
+-- it is on globally AND for the site (the stock WAF's rule). A few globals
+-- work the other way and switch a protection on for every site at once.
+-- Folded in here, once per reload, so requests pay nothing for it.
+local GATED = { get = 'm_get', post = 'm_post', cookie = 'm_cookie', ua = 'm_ua', scan = 'm_scan',
+                cc_open = 'm_cc', nday = 'm_nday', php_guard = 'm_php2shell', fake_spider = 'm_spider' }
+local function apply_globals(sites, cfg)
+    for _, sc in pairs(sites) do
+        for field, sw in pairs(GATED) do
+            if cfg[sw] == false then sc[field] = false end
+        end
+        if cfg.browser_all == true then sc.browser = true end
+        if cfg.form_all == true then sc.form_strict = true end
+        if sc.body_max <= 0 and cfg.http_all == true then sc.body_max = tonumber(cfg.body_max_all) or 0 end
+    end
+end
+
+-- "*" holds the global lists (content replace, API defense...): they apply
+-- to every site, ahead of the site's own entries.
+local function merge_global_rules(rules)
+    local g = rules['*']
+    if not g then return rules end
+    for site, s in pairs(rules) do
+        if site ~= '*' then
+            for kind, list in pairs(g) do
+                local merged = {}
+                for i = 1, #list do merged[#merged + 1] = list[i] end
+                for i = 1, #s[kind] do merged[#merged + 1] = s[kind][i] end
+                s[kind] = merged
+            end
+        end
+    end
+    return rules
+end
+
 function _M.load()
     local cfg = parse_kv(RULE_DIR .. 'config.txt')
     local region, region_by_site = parse_region(RULE_DIR .. 'region.txt')
@@ -502,7 +537,11 @@ function _M.load()
     state = {
         version = tonumber(read_all(RULE_DIR .. 'version') or '') or 0,
         cfg = cfg,
-        sites = parse_sites(RULE_DIR .. 'sites.txt'),
+        sites = (function()
+            local t = parse_sites(RULE_DIR .. 'sites.txt')
+            apply_globals(t, cfg)
+            return t
+        end)(),
         dom_exact = dom_exact,
         dom_wild = dom_wild,
         region = region,
@@ -527,7 +566,7 @@ function _M.load()
         url_white = read_lines(RULE_DIR .. 'url_white.txt'),
         url_black = read_lines(RULE_DIR .. 'url_black.txt'),
         url_keyword = read_lines(RULE_DIR .. 'url_keyword.txt'),
-        site_rules = parse_site_rules(RULE_DIR .. 'site_rules.txt'),
+        site_rules = merge_global_rules(parse_site_rules(RULE_DIR .. 'site_rules.txt')),
         site_domains = parse_site_domains(RULE_DIR .. 'domains.txt'),
         secret = (read_lines(RULE_DIR .. 'secret.txt'))[1] or 'wafpro',
         block_html = read_all(RULE_DIR .. 'block.html'),
@@ -830,7 +869,15 @@ local function cc_check(site, sc, ip, rate)
     local dict = ngx.shared.wafpro_cc
     if not dict then return end
     local api = is_api_call()
-    local key = ip .. '|' .. site .. (api and '|a' or '')
+    -- what one "client" is: the IP (default), the IP on one exact URL (with
+    -- or without its query string), or IP + user-agent (many people behind
+    -- one NAT/office address)
+    local who = ip
+    local k = sc.cc_key
+    if k == 'url' then who = ip .. '|' .. (ngx.var.request_uri or '')
+    elseif k == 'path' then who = ip .. '|' .. (ngx.var.uri or '')
+    elseif k == 'ipua' then who = ip .. '|' .. (ngx.var.http_user_agent or '') end
+    local key = who .. '|' .. site .. (api and '|a' or '')
     local n = dict:incr(key, 1)
     if not n then
         dict:set(key, 1, sc.cc_cycle)
@@ -1451,7 +1498,7 @@ function _M.access()
         end
     end
 
-    local sr = state.site_rules[site]
+    local sr = state.site_rules[site] or state.site_rules['*']
     if sr then site_rules_check(site, sr, ctx, ips, cfg) end
 
     -- extensions the site must never serve directly
@@ -1645,6 +1692,25 @@ function _M.access()
     if sc.cc_open and not skip_cc then
         -- challenge mode: a visitor that proved it is a browser gets 4x the
         -- budget, and one over the limit is asked to verify instead of banned
+        -- automatic mode: a site taking more than cc_auto_limit requests in
+        -- cc_auto_cycle seconds switches to the browser-check mode for
+        -- cc_auto_hold seconds, then falls back on its own
+        if cfg.cc_auto == true and sc.cc_mode ~= 'challenge' then
+            local dict = ngx.shared.wafpro_cc
+            if dict then
+                local hot = dict:get('auto:' .. site)
+                if not hot then
+                    local ck = 'ar:' .. site
+                    local n = dict:incr(ck, 1)
+                    if not n then dict:set(ck, 1, tonumber(cfg.cc_auto_cycle) or 60); n = 1 end
+                    if n > (tonumber(cfg.cc_auto_limit) or 3000) then
+                        dict:set('auto:' .. site, 1, tonumber(cfg.cc_auto_hold) or 600)
+                        hot = 1
+                    end
+                end
+                if hot then sc = setmetatable({ cc_mode = 'challenge' }, { __index = sc }) end
+            end
+        end
         if sc.cc_mode == 'challenge' then
             if verified(ips, ua) then
                 local saved = sc.cc_limit

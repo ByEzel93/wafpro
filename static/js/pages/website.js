@@ -350,8 +350,9 @@
       if (!r.status) { layer.msg(r.msg || 'error', { icon: 2 }); return; }
       var cur = SR_KINDS.filter(function (x) { return x.k === kind; })[0] || SR_KINDS[0];
       var h = '<div class="wp-modal">' +
-        '<div class="wp-mod-head"><div class="wp-mod-site">' + esc(name) + '</div>' +
-        '<div class="wp-mod-meta">' + esc((r.domains || []).join(', ')) + '</div></div>' +
+        '<div class="wp-mod-head"><div class="wp-mod-site">' + (name === '*' ? 'All sites' : esc(name)) + '</div>' +
+        '<div class="wp-mod-meta">' + (name === '*' ? 'Global rules, applied to every website before its own rules' :
+          esc((r.domains || []).join(', '))) + '</div></div>' +
         '<div class="wp-subtabs">' + SR_KINDS.map(function (x) {
           var n = (r.data[x.k] || []).length;
           return '<span class="wp-subtab sr-tab' + (x.k === cur.k ? ' on' : '') + '" data-k="' + x.k + '">' +
@@ -382,7 +383,7 @@
       layer.closeAll('page');
       S.srSwitching = false;
       layer.open({
-        type: 1, title: 'Site rules — ' + name, area: ['820px', '620px'], content: h,
+        type: 1, title: name === '*' ? 'Global rules' : 'Site rules — ' + name, area: ['820px', '620px'], content: h,
         success: function () {
           $('.sr-tab').on('click', function () { siteRules(name, $(this).data('k')); });
           $('#sr-add').on('click', function () {

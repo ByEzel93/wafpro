@@ -213,7 +213,21 @@ class wafpro_main:
         'ban_escalate': True,
         # fetch/XHR calls get this many times the per-site CC budget
         'cc_api_mult': 5,
+        # Global module switches. A protection runs only when it is on here
+        # AND on the site (WebSite tab) — the stock WAF's model.
+        'm_cc': True, 'm_get': True, 'm_post': True, 'm_cookie': True, 'm_ua': True,
+        'm_scan': True, 'm_nday': True, 'm_php2shell': True, 'm_spider': True,
+        # ...and these switch a protection on for every site at once
+        'browser_all': False, 'form_all': False, 'http_all': False, 'body_max_all': 2048,
+        # CC "initial rule": what a newly added site starts with
+        'cc_def_limit': 120, 'cc_def_cycle': 60, 'cc_def_block': 600,
+        'cc_def_mode': 'block', 'cc_def_key': 'ip',
+        # CC automatic mode: past cc_auto_limit requests in cc_auto_cycle s a
+        # site switches to browser verification for cc_auto_hold s
+        'cc_auto': False, 'cc_auto_limit': 3000, 'cc_auto_cycle': 60, 'cc_auto_hold': 600,
     }
+    # text settings and the values they may take
+    CONFIG_CHOICES = {'cc_def_mode': ('block', 'challenge'), 'cc_def_key': ('ip', 'url', 'path', 'ipua')}
     # Empty = allow every method. Anything here is an allow-list.
     DEFAULT_METHODS = ['GET', 'POST', 'HEAD', 'OPTIONS', 'PUT', 'DELETE', 'PATCH']
     # header|max bytes — oversized headers are probes, not real traffic
@@ -255,6 +269,9 @@ class wafpro_main:
         # what happens past the CC limit: 'block' bans, 'challenge' asks the
         # visitor to verify it is a browser first
         'cc_mode': 'block',
+        # what CC counts per: ip, url (IP + full URL), path (IP + URL without
+        # query), ipua (IP + user-agent)
+        'cc_key': 'ip',
         # largest non-upload request body in KB; 0 = no limit
         'body_max': 0,
         # virtual patches for known CVEs (the 'nday' rule set)
@@ -268,7 +285,7 @@ class wafpro_main:
     SITE_INT_FIELDS = ('cc_limit', 'cc_cycle', 'cc_block', 'crawl_limit', 'wait_limit',
                        'body_max')
     SITE_TEXT_FIELDS = ('deny_ext', 'upload_ext', 'php_path')
-    SITE_CHOICE_FIELDS = {'cc_mode': ('block', 'challenge')}
+    SITE_CHOICE_FIELDS = {'cc_mode': ('block', 'challenge'), 'cc_key': ('ip', 'url', 'path', 'ipua')}
     # panel project types whose requests reach PHP
     PHP_PROJECT_TYPES = ('PHP', 'WP', 'WP2', '')
 
@@ -319,6 +336,12 @@ class wafpro_main:
 
     def _site_defaults(self, project_type):
         d = dict(self.DEFAULT_SITE)
+        # the Global CC "initial rule" is what a new site starts with
+        cfg = self._read_json(self.CONFIG, {}) or {}
+        for src, dst in (('cc_def_limit', 'cc_limit'), ('cc_def_cycle', 'cc_cycle'), ('cc_def_block', 'cc_block'),
+                         ('cc_def_mode', 'cc_mode'), ('cc_def_key', 'cc_key')):
+            if src in cfg:
+                d[dst] = cfg[src]
         # The multipart guard reads the whole upload before passing it on;
         # that is the right trade for PHP (the parser it protects), pointless
         # for a Node/Python/Go app.
@@ -1791,7 +1814,10 @@ h1{margin:0 0 8px;font-size:19px}p{margin:0;color:#5c6470}
         for k, v in patch.items():
             if k not in self.DEFAULT_CONFIG:
                 continue
-            if isinstance(self.DEFAULT_CONFIG[k], bool):
+            if k in self.CONFIG_CHOICES:
+                if v in self.CONFIG_CHOICES[k]:
+                    cfg[k] = v
+            elif isinstance(self.DEFAULT_CONFIG[k], bool):
                 cfg[k] = bool(v)
             else:
                 try:
@@ -3055,9 +3081,13 @@ h1{margin:0 0 8px;font-size:19px}p{margin:0;color:#5c6470}
             return {'from': frm, 'to': str(raw.get('to', ''))}, None
         return None, 'Unknown rule type'
 
+    def _site_ok(self, site):
+        '''A real site, or "*" for the global lists.'''
+        return site == '*' or site in self._sites()
+
     def site_rules_get(self, get):
         site = getattr(get, 'siteName', '')
-        if site not in self._sites():
+        if not self._site_ok(site):
             return {'status': False, 'msg': 'Site not found'}
         cur = self._site_rules().get(site, {})
         return {'status': True, 'site': site,
@@ -3067,7 +3097,7 @@ h1{margin:0 0 8px;font-size:19px}p{margin:0;color:#5c6470}
     def site_rule_add(self, get):
         site = getattr(get, 'siteName', '')
         kind = getattr(get, 'kind', '')
-        if site not in self._sites():
+        if not self._site_ok(site):
             return public.returnMsg(False, 'Site not found')
         if kind not in self.SITE_RULE_KINDS:
             return public.returnMsg(False, 'Unknown rule type')
@@ -3110,7 +3140,7 @@ h1{margin:0 0 8px;font-size:19px}p{margin:0;color:#5c6470}
         sites = self._sites()
         out = []
         for site, kinds in sorted(self._site_rules().items()):
-            if site not in sites or not isinstance(kinds, dict):
+            if (site != '*' and site not in sites) or not isinstance(kinds, dict):
                 continue
             for x in kinds.get('dpath', []):
                 out.append('|'.join(['dpath', site, enc(x['rule'])]))
@@ -3423,3 +3453,18 @@ h1{margin:0 0 8px;font-size:19px}p{margin:0;color:#5c6470}
         res['files'] = [f for f in res.get('files', []) if f.get('file') != path]
         self._write_json(self.WS_DIR + 'results.json', res)
         return public.returnMsg(True, 'Marked as safe')
+
+    def cc_apply_all(self, get):
+        '''Push the Global CC initial rule onto every existing site.'''
+        cfg = self._config()
+        data = self._sites()
+        for name, conf in data.items():
+            if not isinstance(conf, dict):
+                continue
+            conf.update({'cc_limit': int(cfg['cc_def_limit']), 'cc_cycle': int(cfg['cc_def_cycle']),
+                         'cc_block': int(cfg['cc_def_block']), 'cc_mode': cfg['cc_def_mode'],
+                         'cc_key': cfg['cc_def_key']})
+        self._write_json(self.SITES, data)
+        self._compile()
+        public.WriteLog('WAF Pro', 'CC initial rule applied to all sites')
+        return public.returnMsg(True, 'CC rule applied to {} site(s)'.format(len(data)))

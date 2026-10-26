@@ -335,3 +335,71 @@ select.wp-in{height:32px}
 #wafpro-app .wp-site-pager .goto{width:56px;height:28px;text-align:center}
 #wafpro-app .wp-site-pager .total{margin-left:6px;font-size:14px;color:#303133}
 #wafpro-app .wp-site-tips{margin:16px 0 0 18px;color:#303133;font-size:12.5px;line-height:2;list-style:disc}
+
+/* ================= aaPanel 8 look for every tab =================
+   The WebSite tab was matched to the stock WAF screenshot; these rules give
+   every other table, checkbox, switch and pager the same treatment so the
+   tabs read as one product. Later rules here intentionally override the
+   older generic ones above. */
+#wafpro-app .wp-card{border-color:#ebeef5;border-radius:8px}
+.wp-tbl{font-size:13px;border-collapse:separate;border-spacing:0;border:1px solid #ebeef5;border-radius:6px;overflow:hidden}
+#wafpro-app .wp-tbl th, .wp-modal .wp-tbl th{background:#fff;color:#303133;font-weight:500;padding:11px 10px;
+  border-bottom:1px solid #ebeef5}
+#wafpro-app .wp-tbl td, .wp-modal .wp-tbl td{padding:9px 10px;border-bottom:1px solid #ebeef5;color:#606266}
+#wafpro-app .wp-tbl tr:last-child td, .wp-modal .wp-tbl tr:last-child td{border-bottom:none}
+#wafpro-app .wp-tbl tbody tr:hover td, .wp-modal .wp-tbl tbody tr:hover td{background:#f5f7fa}
+/* every checkbox as el-checkbox (switches hide theirs, so they are unaffected) */
+#wafpro-app input[type=checkbox], .wp-modal input[type=checkbox]{appearance:none;-webkit-appearance:none;
+  width:15px;height:15px;margin:0;border:1px solid #dcdfe6;border-radius:2px;background:#fff;cursor:pointer;
+  position:relative;vertical-align:middle;transition:all .15s;flex:none}
+#wafpro-app input[type=checkbox]:hover, .wp-modal input[type=checkbox]:hover{border-color:var(--wp-green)}
+#wafpro-app input[type=checkbox]:checked, .wp-modal input[type=checkbox]:checked{background:var(--wp-green);border-color:var(--wp-green)}
+#wafpro-app input[type=checkbox]:checked::after, .wp-modal input[type=checkbox]:checked::after{content:'';position:absolute;
+  left:4px;top:1px;width:4px;height:8px;border:solid #fff;border-width:0 2px 2px 0;transform:rotate(45deg)}
+#wafpro-app input[type=checkbox]:disabled, .wp-modal input[type=checkbox]:disabled{opacity:.5;cursor:not-allowed}
+/* el-switch (40x20) */
+.wp-sw{width:40px;height:20px}
+.wp-sw .sl{background:#dcdfe6;border-radius:10px}
+.wp-sw .sl::before{width:16px;height:16px;left:2px;top:2px;box-shadow:0 1px 2px rgba(0,0,0,.15)}
+.wp-sw input:checked + .sl::before{left:22px}
+/* el-pagination: plain numbers, the current one outlined in green */
+#wafpro-app .wp-pager .wp-btn.pg, #wafpro-app .wp-sp{min-width:28px;height:28px;padding:0 6px;border-color:transparent;
+  background:transparent;color:#303133;justify-content:center}
+#wafpro-app .wp-pager .wp-btn.pg[data-p=prev], #wafpro-app .wp-pager .wp-btn.pg[data-p=next]{border-color:#dcdfe6}
+#wafpro-app .wp-pager .wp-btn.pg.primary, #wafpro-app .wp-sp.primary{background:transparent;color:var(--wp-green);border-color:var(--wp-green)}
+#wafpro-app .wp-pager .wp-btn.pg:hover{color:var(--wp-green);background:transparent}
+/* el-button sizes */
+.wp-btn{height:32px;padding:0 15px;border-color:#dcdfe6;border-radius:4px;color:#606266}
+.wp-btn.primary{border-radius:4px}
+/* card tabs inside a page (Blockade, Black/White list, Global...) */
+#wafpro-app .wp-subtab, .wp-modal .wp-subtab{background:#f5f7fa;border-color:#e4e7ed;color:#606266}
+#wafpro-app .wp-subtab.on, .wp-modal .wp-subtab.on{background:#fff;color:var(--wp-green);border-bottom-color:#fff;font-weight:500}
+/* notes under a table, dark like the stock UI */
+#wafpro-app .wp-notes{color:#303133;font-size:12.5px}
+
+/* ================= Global tab ================= */
+#wafpro-app .wp-g-head{display:flex;align-items:center;gap:22px;flex-wrap:wrap;margin-bottom:12px;padding:14px 18px}
+#wafpro-app .wp-g-item{display:flex;align-items:center;gap:10px}
+#wafpro-app .wp-g-lbl{color:#303133;font-size:14px}
+#wafpro-app .wp-g-state{flex:1;min-width:220px;font-size:12px;line-height:1.7;color:#909399}
+#wafpro-app .wp-g-acts{display:flex;gap:8px}
+#wafpro-app .wp-g-tbl td{white-space:normal}
+#wafpro-app .wp-g-tbl td.site{white-space:nowrap}
+/* row settings dialogs */
+.wp-g-dlg{padding:18px 22px}
+.wp-g-row{display:flex;gap:14px;align-items:flex-start;padding:7px 0}
+.wp-g-rl{width:120px;flex:none;text-align:right;color:#606266;line-height:32px}
+.wp-g-rc{flex:1;min-width:0;display:flex;align-items:center;gap:6px;flex-wrap:wrap;min-height:32px}
+.wp-g-hint{flex-basis:100%;color:#909399;font-size:12px;line-height:1.8}
+.wp-g-hint .wp-in{height:26px;margin:0 2px}
+.wp-g-sec{font-weight:600;color:#303133;margin:14px 0 8px}
+.wp-g-sec:first-child{margin-top:0}
+.wp-g-radios{display:flex;flex-wrap:wrap;gap:6px 18px}
+.wp-g-radios label, .wp-g-chk{display:inline-flex;align-items:center;gap:6px;cursor:pointer;color:#606266}
+.wp-g-radios input[type=radio]{accent-color:var(--wp-green)}
+.wp-modal .wp-site-tbl{width:100%;border-collapse:separate;border-spacing:0;border:1px solid #ebeef5;border-radius:6px;font-size:13px}
+.wp-modal .wp-site-tbl th{background:#fff;color:#303133;font-weight:500;text-align:left;padding:9px 10px;border-bottom:1px solid #ebeef5}
+.wp-modal .wp-site-tbl td{padding:8px 10px;border-bottom:1px solid #ebeef5;color:#606266}
+.wp-modal .wp-site-tbl tr:last-child td{border-bottom:none}
+.wp-modal .wp-site-tbl .r{text-align:right}
+.wp-modal .wp-site-tips{margin:14px 0 0 18px;color:#606266;font-size:12px;line-height:1.9;list-style:disc}
