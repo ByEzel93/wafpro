@@ -19,16 +19,21 @@ one dashboard:
 
 | Tab | What it covers |
 |-----|----------------|
-| **Overview** | Live traffic/attack charts, top attackers, world map, attack-type breakdown |
-| **Website** | Per-site switches: scan protection, GET/POST/Cookie/UA filtering, CC defense, fake-spider blocking, per-site CDN, upload/extension filters |
-| **Blockade** | Interception records, auto-banned IP list (with unban), rule-hit stats |
-| **Black/White List** | IP and URL allow/deny lists |
+| **Overview** | Traffic / attack charts by day, real-time QPS and origin response, access & block map, attacked domains / traffic / visited pages TOP10, intercept types |
+| **WebSite** | Per-site switches (domains detected automatically, incl. Node projects and wildcards): GET/POST/Cookie/UA filters, scanner, N-day patches, PHP2Shell guard, form-data check, non-browser check, IDC interception, CC defense (block or browser-check), smart CC, crawl limit, waiting room, CDN, fake spider, file/upload/PHP-path rules — plus per-site **Rules**: forbidden URL, anti-leech, protected URL, API defense, content replace |
+| **Blockade** | Interception records, banned IPs (auto-ban, CC, traffic; escalating) with unban, rule-hit stats |
+| **Black/White List** | IP white/black (IPv4 + IPv6, ranges, CIDR), UA white/black, URL white/black, URL keywords |
 | **Region** | Per-rule country blocking (allow-list / block-list), per site |
-| **Traffic** | Per-URL rate limiting (per IP or IP+UA), 503/502/block actions |
-| **Custom Rules** | Multi-condition rules (IP, country, method, URI, header, UA, …) with allow/block/status actions |
+| **Traffic Limit** | Per-URL rate limiting (per IP or IP+UA), 503/502/block actions |
+| **Custom rules** | Multi-condition rules (IP, country, method, URI, header, UA, …) with allow/block/status actions |
+| **Webshell** | Background scan of site files for webshell signatures; view, quarantine/restore, mark safe |
 | **Attack Map** | World map of attackers with animated lines to the server |
 | **Report** | Attack analytics by IP / URI, protection-type donut, country leaderboard, date range + search |
-| **Global** | Master switch, auto-ban, HTTP method allow-list, header size limits, sensitive-word filter, malicious-IP feed, verified-crawler list, config export/import/restore |
+| **Global** | Master switch, engine wiring + health/update, auto-ban, escalating bans, malicious-IP / datacenter / verified-crawler lists, HTTP methods, header and parameter limits, response codes, PHP2Shell limits, filter rule-set editor, block & check pages, sensitive words, config export/import/restore |
+
+**Simulated attack** (top right) sends real attack-shaped requests to each site
+through nginx and shows which rule stopped each one — and flags any PHP build on
+the server that lacks the PHP2Shell fix.
 
 ### Design notes (how it's built)
 
@@ -56,22 +61,23 @@ one dashboard:
 
 ## Limitations — please read
 
-**WAF Pro is for static and PHP sites. It is NOT compatible with Node.js /
-reverse-proxy sites.**
+- **One lua WAF per nginx.** WAF Pro refuses to wire itself in while aaPanel's
+  btwaf or free_waf is hooked into nginx (two `access_by_lua_file` in one
+  `http` block is a fatal config error).
+- **Reverse-proxied apps (Node.js, Nuxt, Next.js…).** Versions before 2.1
+  broke these with 503s. 2.1 removes the known causes (the server's own SSR
+  requests are never rate-limited or banned, WebSocket connections are kept out
+  of the rate counters, and Node project domains are now actually matched).
+  It has been tested on an isolated nginx with the same build, **not yet under
+  real production traffic** — enable it on a proxied site and watch it before
+  relying on it.
+- **PHP2Shell (CVE-2026-109618 / 109619).** The guard removes the known
+  triggers, but PHP's own advisory is clear that updating PHP (8.2.35, 8.3.36,
+  8.4.27, 8.5.12 or newer) is the only complete fix.
+- The country database is IPv4-only, so Region rules do not apply to IPv6
+  visitors (every other rule does).
 
-The engine hooks into nginx's `access` phase globally (the same design aaPanel's
-own free WAF uses). Sites served through a reverse proxy — **Node.js, Nuxt,
-Next.js**, or anything using `proxy_pass` with WebSocket/streaming
-(`Connection: upgrade`) — are broken by this: dynamic requests start returning
-**503 Service Temporarily Unavailable**, so pages load but navigation/API calls
-fail. This is a fundamental limitation of the access-phase approach, not a bug
-that can be toggled off per site.
-
-Such apps are almost always behind a CDN (Cloudflare, etc.) whose own WAF
-already covers them, so you don't need this plugin there.
-
-**If a dynamic site starts returning 503 after you enable the engine**, disable
-it immediately:
+If a site misbehaves after you enable the engine, disable it immediately:
 
 ```bash
 rm -f /www/server/panel/vhost/nginx/wafpro.conf
@@ -97,6 +103,11 @@ That fully removes the engine from nginx; your sites keep running.
 
 The installer never edits a running nginx config without a successful `nginx -t`
 first, and backs up before changing anything.
+
+**Updating from 2.0:** upload the new zip the same way. The updater re-renders
+all rule files (2.1 uses a new site format) and, if the engine is wired, reloads
+nginx after a passing `nginx -t`. Global › Engine status shows when the workers
+run the latest settings.
 
 ---
 
