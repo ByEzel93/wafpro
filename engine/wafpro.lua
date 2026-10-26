@@ -407,14 +407,20 @@ local function parse_site_domains(path)
 end
 
 -- id|site|type|status|open
+-- A rule covering several sites has one line per site; they share the
+-- ranges and the optional response page (<id>.html), read once.
 local function parse_region(path)
-    local rules, by_site = {}, {}
+    local rules, by_site, bins, pages = {}, {}, {}, {}
     for _, line in ipairs(read_lines(path)) do
         local id, site, typ, status, open = line:match('^([^|]*)|([^|]*)|([^|]*)|([^|]*)|([^|]*)$')
         if id and open == '1' then
-            local buf = read_all(RULE_DIR .. id .. '.bin')
+            if bins[id] == nil then
+                bins[id] = read_all(RULE_DIR .. id .. '.bin') or false
+                pages[id] = read_all(RULE_DIR .. id .. '.html') or false
+            end
+            local buf = bins[id]
             if buf then
-                local r = { id = id, site = site, typ = typ,
+                local r = { id = id, site = site, typ = typ, page = pages[id] or nil,
                             status = tonumber(status) or 444, ranges = buf }
                 rules[#rules + 1] = r
                 local b = by_site[site]
@@ -784,6 +790,16 @@ local function deny(ip, site, rule, payload, status)
     -- panel's self-test must not get the server's own address banned
     if rule ~= 'banned' and rule ~= 'cc-blocked' and not ngx.ctx.wafpro_testing then
         pcall(auto_ban, ip, site, rule)
+    end
+    -- a rule with its own response page (Region "Response") answers with
+    -- it under whatever status the rule has, 200 included
+    local page = ngx.ctx.wafpro_page
+    if page and status ~= 444 then
+        ngx.status = status
+        ngx.header['Content-Type'] = 'text/html; charset=utf-8'
+        ngx.header['Cache-Control'] = 'no-store'
+        ngx.print(page)
+        return ngx.exit(status >= 200 and status < 300 and ngx.HTTP_OK or status)
     end
     if status >= 400 and status < 500 and status ~= 444 then
         return block_page(ip, rule, status)
@@ -1707,6 +1723,7 @@ function _M.access()
                 local hit = in_ranges(r.ranges, key)
                 -- intercept: listed areas blocked. pass: only listed get through.
                 if (r.typ == 'intercept' and hit) or (r.typ == 'pass' and not hit) then
+                    ngx.ctx.wafpro_page = r.page
                     return deny(ips, site, 'region:' .. r.typ, ips, r.status)
                 end
             end

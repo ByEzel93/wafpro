@@ -1143,8 +1143,15 @@ h1{margin:0 0 8px;font-size:19px}p{margin:0;color:#5c6470}
         keep = set()
         for r in region:
             keep.add(r['id'] + '.bin')
-            rl.append('|'.join([r['id'], r['site'], r['type'], str(r['status']),
-                                '1' if r.get('open') else '0']))
+            # a rule may cover several sites (or '*' = all): one line each,
+            # all pointing at the same packed ranges
+            for site in self._region_sites(r):
+                rl.append('|'.join([r['id'], site, r['type'], str(r['status']),
+                                    '1' if r.get('open') else '0']))
+            page = public.readFile(self.REGION_PAGES + r['id'] + '.html') or ''
+            if page.strip():
+                keep.add(r['id'] + '.html')
+                self._w(r['id'] + '.html', page)
         self._w('region.txt', '\n'.join(rl))
 
         # traffic limit: id|site|url|dim|rate|action|status|open
@@ -1192,7 +1199,8 @@ h1{margin:0 0 8px;font-size:19px}p{margin:0;color:#5c6470}
         # or it gets deleted the moment it is created.
         fixed = set(n + '.bin' for n in self.FIXED_SETS) | set(n + '.bin6' for n in self.FIXED_SETS)
         for fn in os.listdir(RULE_DIR):
-            if (fn.endswith('.bin') or fn.endswith('.bin6')) and fn not in keep and fn not in fixed:
+            if (fn.endswith('.bin') or fn.endswith('.bin6') or (fn.startswith('r') and fn.endswith('.html'))) \
+                    and fn not in keep and fn not in fixed:
                 try:
                     os.remove(RULE_DIR + fn)
                 except Exception:
@@ -2531,9 +2539,16 @@ h1{margin:0 0 8px;font-size:19px}p{margin:0;color:#5c6470}
         {'code': 444, 'name': '444 Close connection (No content returned)'},
         {'code': 403, 'name': '403 Access denied'},
         {'code': 404, 'name': '404 File not exist'},
+        {'code': 502, 'name': '502 Connection timed out'},
         {'code': 503, 'name': '503 Server is unavailable'},
         {'code': 200, 'name': '200 Normal access'},
     ]
+    REGION_PAGES = PLUGIN_PATH + 'region_pages/'
+
+    def _region_sites(self, r):
+        '''Sites a region rule covers; pre-2.2 rules hold one in 'site'.'''
+        sites = r.get('sites') or [r.get('site', '')]
+        return [x for x in sites if x]
 
     def _country_names(self):
         '''ISO 3166-1 alpha-2 -> English name, from CLDR via babel.
@@ -2641,8 +2656,10 @@ h1{margin:0 0 8px;font-size:19px}p{margin:0;color:#5c6470}
         for r in rules:
             rows.append({
                 'id': r['id'],
-                'site': r['site'],
+                'site': r.get('site', ''),
+                'sites': self._region_sites(r),
                 'areas': r['areas'],
+                'page': os.path.exists(self.REGION_PAGES + r['id'] + '.html'),
                 'area_text': ', '.join(names.get(c) or c for c in r['areas']),
                 'type': r['type'],
                 'status': r['status'],
@@ -2670,9 +2687,22 @@ h1{margin:0 0 8px;font-size:19px}p{margin:0;color:#5c6470}
             return public.returnMsg(False, 'Invalid areas payload')
         if not isinstance(areas, list) or not areas:
             return public.returnMsg(False, 'Select at least one area')
-        site = (getattr(get, 'site', '') or '').strip()
-        if not site:
-            return public.returnMsg(False, 'Select a website')
+        # sites: JSON list of site names, '*' meaning every site; the old
+        # single 'site' arg still works
+        try:
+            sites = json.loads(getattr(get, 'sites', '') or '[]')
+        except Exception:
+            sites = []
+        if not isinstance(sites, list):
+            sites = []
+        one = (getattr(get, 'site', '') or '').strip()
+        if one:
+            sites.append(one)
+        known = set(self._panel_sites())
+        sites = ['*'] if '*' in sites else sorted({x for x in sites if x in known})
+        if not sites:
+            return public.returnMsg(False, 'Please choose Website...')
+        site = sites[0]
         typ = getattr(get, 'type', 'intercept')
         if typ not in self.RULE_TYPES:
             return public.returnMsg(False, 'Type must be intercept or pass')
@@ -2692,19 +2722,47 @@ h1{margin:0 0 8px;font-size:19px}p{margin:0;color:#5c6470}
             os.makedirs(RULE_DIR, 0o700)
         n = self._pack(ranges, RULE_DIR + rid + '.bin')
         rules = self._rules()
-        rules.append({'id': rid, 'site': site, 'areas': areas, 'type': typ,
+        rules.append({'id': rid, 'site': site, 'sites': sites, 'areas': areas, 'type': typ,
                       'status': status, 'open': True, 'ranges': n,
                       'created': time.strftime('%Y-%m-%d %H:%M:%S')})
         self._region_build(rules)
         public.WriteLog('WAF Pro', 'Region rule added: {} {} on {} ({} ranges)'.format(
-            typ, ','.join(areas), site, n))
+            typ, ','.join(areas), ','.join(sites), n))
         return public.returnMsg(True, 'Rule added ({} ranges)'.format(n))
 
     def region_rule_del(self, get):
         rid = getattr(get, 'id', '')
         rules = [r for r in self._rules() if r['id'] != rid]
+        if re.match(r'^r\d+$', rid or '') and os.path.exists(self.REGION_PAGES + rid + '.html'):
+            os.remove(self.REGION_PAGES + rid + '.html')
         self._region_build(rules)
         return public.returnMsg(True, 'Rule removed')
+
+    def region_page_get(self, get):
+        '''The page a region rule answers with ("Response" in the table).
+        Empty = the shared block page (or a bare status for 444/200...).'''
+        rid = getattr(get, 'id', '')
+        if not re.match(r'^r\d+$', rid or ''):
+            return public.returnMsg(False, 'Bad rule id')
+        return {'status': True, 'html': public.readFile(self.REGION_PAGES + rid + '.html') or '',
+                'default': self._page('block')}
+
+    def region_page_save(self, get):
+        rid = getattr(get, 'id', '')
+        if not re.match(r'^r\d+$', rid or '') or rid not in [r['id'] for r in self._rules()]:
+            return public.returnMsg(False, 'Bad rule id')
+        h = getattr(get, 'html', '') or ''
+        if len(h) > 200000:
+            return public.returnMsg(False, 'Page is too large')
+        path = self.REGION_PAGES + rid + '.html'
+        if h.strip():
+            if not os.path.isdir(self.REGION_PAGES):
+                os.makedirs(self.REGION_PAGES, 0o700)
+            public.writeFile(path, h)
+        elif os.path.exists(path):
+            os.remove(path)
+        self._compile()
+        return public.returnMsg(True, 'Response page saved' if h.strip() else 'Response page reset to default')
 
     def region_rule_toggle(self, get):
         rid = getattr(get, 'id', '')

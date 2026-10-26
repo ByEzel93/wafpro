@@ -4,7 +4,7 @@
 /* Design tokens only. These must also reach our modals, which layer renders
    outside #wafpro-app — but ONLY the custom properties may be shared:
    putting layout here would restyle every panel popup and break them. */
-#wafpro-app, .wp-modal{
+#wafpro-app, .wp-modal, .wp-g-dlg{
   --wp-green:#20a53a; --wp-green-d:#1b9130; --wp-green-s:#eef7f0;
   --wp-text:#1f2329; --wp-text2:#5c6470; --wp-text3:#9aa1ab;
   --wp-border:#ebedf0; --wp-bg:#f5f6f8; --wp-card:#fff;
@@ -474,3 +474,52 @@ select.wp-in{height:32px}
 .wp-det-v .wp-lnk{color:#20a53a;cursor:pointer}
 #wafpro-app .wp-list-bar .wp-site-search{margin-left:auto}
 #wafpro-app .wp-list-bar.top{margin-top:0;border-top:none;padding-top:0}
+
+/* ================= Region (aaPanel 8) ================= */
+.wp-ra{font-size:13px;color:#606266}
+.wp-ra-top{display:flex;align-items:center;gap:10px}
+.wp-ra-sel{display:flex;flex-wrap:wrap;align-items:center;gap:6px;min-height:28px;margin:12px 0 10px}
+.wp-ra-chip{display:inline-flex;align-items:center;gap:4px;height:22px;padding:0 4px 0 10px;border-radius:11px;
+  background:#e8f6ec;color:#20a53a;font-size:12px}
+.wp-ra-chip i{font-style:normal;cursor:pointer;padding:0 4px;color:#20a53a}
+.wp-ra-chip i:hover{color:#f56c6c}
+.wp-ra-tabs{display:flex;align-items:flex-end;border-bottom:1px solid #e4e7ed}
+.wp-ra-tabbar{display:flex;flex:1;gap:4px;flex-wrap:wrap}
+.wp-ra-tabbar span{padding:0 16px;height:32px;line-height:32px;border:1px solid #e4e7ed;border-bottom:none;
+  border-radius:4px 4px 0 0;background:#f5f7fa;cursor:pointer;margin-bottom:-1px}
+.wp-ra-tabbar span.on{background:#fff;color:#20a53a;border-bottom:1px solid #fff}
+.wp-ra-search{position:relative;margin:0 0 4px 8px}
+.wp-ra-search .wp-in{width:200px;height:28px}
+.wp-ra-ac{display:none;position:absolute;right:0;top:32px;width:220px;background:#fff;border:1px solid #e4e7ed;
+  border-radius:4px;box-shadow:0 4px 12px rgba(0,0,0,.1);z-index:10;padding:4px 0;max-height:280px;overflow:auto}
+.wp-ra-ac div{padding:6px 12px;cursor:pointer}
+.wp-ra-ac div:hover{background:#f5f7fa}
+.wp-ra-ac div span{color:#909399;font-size:12px}
+.wp-ra-ac .none{color:#909399;cursor:default}
+.wp-ra-body{min-height:244px;max-height:300px;overflow:auto;padding:12px 2px 4px}
+.wp-ra-t{font-weight:600;color:#303133;margin:4px 0 10px}
+.wp-ra-grid{display:flex;flex-wrap:wrap;gap:8px;margin-bottom:16px}
+.wp-ra-tag{display:inline-flex;align-items:center;gap:4px;height:28px;padding:0 12px;border:1px solid #dcdfe6;
+  border-radius:4px;cursor:pointer;background:#fff;user-select:none}
+.wp-ra-tag:hover{border-color:#20a53a;color:#20a53a}
+.wp-ra-tag.on{border-color:#20a53a;background:#e8f6ec;color:#20a53a}
+.wp-ra-tag em{font-style:normal;background:#20a53a;color:#fff;border-radius:9px;padding:0 5px;height:18px;
+  line-height:18px;font-size:11px;margin-left:4px}
+/* multi-select with tags */
+.wp-ms{position:relative;width:300px}
+.wp-ms-box{min-height:32px;border:1px solid #dcdfe6;border-radius:4px;padding:3px 6px;display:flex;flex-wrap:wrap;
+  gap:4px;align-items:center;cursor:pointer;background:#fff;box-sizing:border-box}
+.wp-ms.open .wp-ms-box{border-color:#20a53a}
+.wp-ms-box .ph{color:#c0c4cc}
+.wp-ms-box .wp-chip2{display:inline-flex;align-items:center;gap:4px;background:#f4f4f5;border:1px solid #e9e9eb;
+  border-radius:3px;padding:0 4px 0 7px;font-size:12px;height:22px;color:#606266}
+.wp-ms-box .wp-chip2 i{font-style:normal;cursor:pointer;padding:0 3px}
+.wp-ms-drop{display:none;position:absolute;left:0;right:0;top:100%;margin-top:4px;background:#fff;border:1px solid #e4e7ed;
+  border-radius:4px;box-shadow:0 4px 12px rgba(0,0,0,.1);z-index:10;max-height:220px;overflow:auto;padding:4px 0}
+.wp-ms.open .wp-ms-drop{display:block}
+.wp-ms-opt{padding:7px 12px;cursor:pointer}
+.wp-ms-opt:hover{background:#f5f7fa}
+.wp-ms-opt.on{color:#20a53a;font-weight:600}
+.wp-ms-opt.on::after{content:'\2713';float:right}
+.wp-html-ed{flex:1;width:100%;min-height:380px;font:12px/1.6 ui-monospace,Menlo,Consolas,monospace;resize:none;box-sizing:border-box}
+.wp-g-dlg .wp-in{box-sizing:border-box}
