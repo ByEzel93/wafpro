@@ -85,7 +85,13 @@
   #wafpro-app .wp-main-grid{grid-template-columns:390px minmax(0,1fr)}
   @media (max-width:1180px){#wafpro-app .wp-main-grid{grid-template-columns:1fr}}
   #wafpro-app .wp-col{display:flex;flex-direction:column;gap:14px;min-width:0}
+  #wafpro-app .wp-top3{grid-template-columns:repeat(3,minmax(0,1fr))}
+  @media (max-width:1180px){#wafpro-app .wp-top3{grid-template-columns:1fr}}
   #wafpro-app .wp-daterow{display:flex;align-items:center;gap:10px}
+  #wafpro-app .wp-seg .wp-date{position:relative;color:var(--wp-text3)}
+  #wafpro-app .wp-seg .wp-date.on{color:#fff}
+  #wafpro-app .wp-seg .wp-date input{position:absolute;inset:0;opacity:0;cursor:pointer;width:100%}
+  #wafpro-app .wp-tabs .wp-tab-act{margin-left:auto;padding:6px 14px;flex:none}
   #wafpro-app .wp-count{width:30px;height:30px;border-radius:50%;border:1px solid var(--wp-green);
     color:var(--wp-green);font-size:12px;font-weight:600;display:flex;align-items:center;justify-content:center;flex:none}
   #wafpro-app .wp-ref{margin-left:auto;padding:6px 12px}
@@ -102,9 +108,9 @@
 
   /* ---- tables ---- */
   .wp-tbl{width:100%;border-collapse:collapse;font-size:12px}
-  #wafpro-app .wp-tbl th{background:#fafbfc;color:var(--wp-text);font-weight:600;text-align:left;
+  #wafpro-app .wp-tbl th, .wp-modal .wp-tbl th{background:#fafbfc;color:var(--wp-text);font-weight:600;text-align:left;
     padding:9px 10px;border-bottom:1px solid var(--wp-border);white-space:nowrap}
-  #wafpro-app .wp-tbl td{padding:9px 10px;border-bottom:1px solid #f4f5f6;color:var(--wp-text2);vertical-align:middle}
+  #wafpro-app .wp-tbl td, .wp-modal .wp-tbl td{padding:9px 10px;border-bottom:1px solid #f4f5f6;color:var(--wp-text2);vertical-align:middle}
   #wafpro-app .wp-tbl tr:last-child td{border-bottom:none}
   #wafpro-app .wp-tbl tbody tr:hover td{background:#fafbfc}
   #wafpro-app .wp-tbl .ell{max-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
@@ -130,13 +136,16 @@
   #wafpro-app .wp-chip.url{background:#f6ffed;color:#389e0d}
 
   /* ---- blockade sub-tabs + toolbar ---- */
-  #wafpro-app .wp-subtabs{display:flex;gap:4px;padding:0}
-  #wafpro-app .wp-subtab{padding:9px 18px;font-size:13px;cursor:pointer;color:var(--wp-text2);
+  #wafpro-app .wp-subtabs, .wp-modal .wp-subtabs{display:flex;gap:4px;padding:0}
+  #wafpro-app .wp-subtab, .wp-modal .wp-subtab{padding:9px 18px;font-size:13px;cursor:pointer;color:var(--wp-text2);
     background:#eef0f2;border:1px solid var(--wp-border);border-bottom:none;
     border-radius:6px 6px 0 0;position:relative;top:1px}
-  #wafpro-app .wp-subtab:hover{color:var(--wp-green)}
-  #wafpro-app .wp-subtab.on{background:var(--wp-card);color:var(--wp-green);font-weight:600;
+  #wafpro-app .wp-subtab:hover, .wp-modal .wp-subtab:hover{color:var(--wp-green)}
+  #wafpro-app .wp-subtab.on, .wp-modal .wp-subtab.on{background:var(--wp-card);color:var(--wp-green);font-weight:600;
     border-bottom:1px solid var(--wp-card)}
+  .wp-modal .wp-subtabs{padding:12px 18px 0;border-bottom:1px solid var(--wp-border);background:#fafbfc}
+  .wp-modal .wp-subtab.on{background:#fff;border-bottom-color:#fff}
+  .wp-modal .wp-tbl{margin-top:6px}
   #wafpro-app .wp-bl-bar{display:flex;align-items:center;gap:8px;flex-wrap:wrap;margin-bottom:6px}
   #wafpro-app .wp-search{position:relative}
   #wafpro-app .wp-search .wp-in{width:290px;padding-right:28px}
@@ -162,9 +171,9 @@
   #wafpro-app .wp-f{width:300px}
   #wafpro-app .wp-list-bar{display:flex;align-items:center;gap:8px;margin:20px 0 12px;
     padding-top:16px;border-top:1px solid var(--wp-border)}
-  #wafpro-app .wp-notes{margin:18px 0 0 18px;color:var(--wp-text2);font-size:12px;line-height:2;list-style:disc}
-  #wafpro-app .wp-notes li{padding-left:2px}
-  #wafpro-app .wp-notes b{color:var(--wp-text)}
+  #wafpro-app .wp-notes, .wp-modal .wp-notes{margin:18px 0 0 18px;color:var(--wp-text2);font-size:12px;line-height:2;list-style:disc}
+  #wafpro-app .wp-notes li, .wp-modal .wp-notes li{padding-left:2px}
+  #wafpro-app .wp-notes b, .wp-modal .wp-notes b{color:var(--wp-text)}
   #wafpro-app .wp-notes code, .wp-modal code{background:#f2f3f5;border-radius:3px;padding:1px 5px;
     font-family:ui-monospace,Menlo,Consolas,monospace;font-size:11px}
 
@@ -261,8 +270,8 @@
 
   /* ---- misc ---- */
   .wp-empty{padding:40px 0;text-align:center;color:var(--wp-text3)}
-  #wafpro-app .wp-loading{padding:40px 0;text-align:center;color:var(--wp-text3)}
-  #wafpro-app .wp-note{background:#fffbe6;border:1px solid #ffe58f;color:#8a6d3b;
+  #wafpro-app .wp-loading, .wp-modal .wp-loading{padding:40px 0;text-align:center;color:var(--wp-text3)}
+  #wafpro-app .wp-note, .wp-modal .wp-note{background:#fffbe6;border:1px solid #ffe58f;color:#8a6d3b;
     padding:10px 14px;border-radius:8px;margin-bottom:14px;font-size:13px}
   .wp-in{border:1px solid var(--wp-border);border-radius:6px;padding:6px 10px;font-size:13px;
     color:var(--wp-text);outline:none;height:32px}
@@ -279,7 +288,15 @@
   var API = '/plugin?action=a&name=wafpro&s=';
   var S = { tab: 'overview', charts: {}, timer: null, range: 'today' };
 
+  // The panel merges form fields over the query string, so a payload key
+  // named action/name/s would replace the route itself (issue #1).
+  var RESERVED = ['action', 'name', 's'];
   function post(m, d, cb) {
+    RESERVED.forEach(function (k) {
+      if (d && Object.prototype.hasOwnProperty.call(d, k)) {
+        console.error('[WAF Pro] payload key "' + k + '" is reserved by the panel router (' + m + ')');
+      }
+    });
     $.post(API + m, d || {}, function (r) { cb(r); }, 'json')
       .fail(function (x) { layer.msg('Request failed: ' + x.status, { icon: 2 }); });
   }
@@ -288,6 +305,12 @@
       return { '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[c];
     });
   }
+  function dayStr(offset) {
+    var d = new Date(Date.now() + (offset || 0) * 86400000);
+    var p = function (x) { return (x < 10 ? '0' : '') + x; };
+    return d.getFullYear() + '-' + p(d.getMonth() + 1) + '-' + p(d.getDate());
+  }
+  function todayStr() { return dayStr(0); }
   function num(n) { return (n || 0).toString().replace(/\B(?=(\d{3})+(?!\d))/g, ','); }
   function mb(b) {
     b = b || 0;
@@ -371,12 +394,13 @@
   /* ---------- tabs ---------- */
   var TABS = [
     { id: 'overview', t: 'Overview' },
-    { id: 'website', t: 'Website' },
+    { id: 'website', t: 'WebSite' },
     { id: 'blockade', t: 'Blockade' },
     { id: 'lists', t: 'Black/White List' },
     { id: 'region', t: 'Region' },
-    { id: 'traffic', t: 'Traffic' },
-    { id: 'rules', t: 'Custom Rules' },
+    { id: 'traffic', t: 'Traffic Limit' },
+    { id: 'rules', t: 'Custom rules' },
+    { id: 'webshell', t: 'Webshell' },
     { id: 'attackmap', t: 'Attack Map' },
     { id: 'report', t: 'Report' },
     { id: 'global', t: 'Global' }
@@ -384,8 +408,10 @@
   function renderTabs() {
     $('#wp-tabs').html(TABS.map(function (x) {
       return '<div class="wp-tab' + (x.id === S.tab ? ' on' : '') + '" data-t="' + x.id + '">' + x.t + '</div>';
-    }).join(''));
+    }).join('') +
+      '<span class="wp-btn primary wp-tab-act" id="wp-simulate" title="Send attack-shaped test requests to your sites">Simulated attack</span>');
   }
+  $('#wp-tabs').on('click', '#wp-simulate', function () { selfTestDialog(''); });
   $('#wp-tabs').on('click', '.wp-tab', function () {
     var t = $(this).data('t');
     if (t === S.tab) return;
@@ -394,6 +420,9 @@
 
   function route() {
     if (S.timer) { clearInterval(S.timer); S.timer = null; }
+    // Pages bind delegated handlers on #wp-body; without this every visit
+    // stacked another copy, so one click on Delete fired N confirms/requests.
+    $('#wp-body').off();
     Object.keys(S.charts).forEach(function (k) { try { S.charts[k].dispose(); } catch (e) {} });
     S.charts = {};
     $('#wp-body').scrollTop(0);
@@ -407,6 +436,7 @@
     if (S.tab === 'attackmap') return pageAttackMap();
     if (S.tab === 'report') return pageReport();
     if (S.tab === 'global') return pageGlobal();
+    if (S.tab === 'webshell') return pageWebshell();
   }
 
   /* ================= BLOCKADE (3 sub-tabs, like the Pro UI) ================= */
@@ -706,39 +736,53 @@
       head: 'Add the following IP addresses to the whitelist',
       notes: [
         'All rules are skipped for IPs in the whitelist, including IP blacklist and URL blacklist — the IP whitelist has the highest priority.',
-        'Add one IP: enter <b>192.168.10.6</b> in Start IP and leave End IP empty.',
+        'Add one IP: enter <b>192.168.10.6</b> or <b>2001:db8::6</b> in Start IP and leave End IP empty.',
         'Add a range: Start IP <b>192.168.100.6</b>, End IP <b>192.168.100.100</b> — or type <b>192.168.100.6-100</b> in Start IP.',
-        'Add a segment: <b>192.168.1.0/24</b> becomes 192.168.1.1 – 192.168.1.254.',
-        'Add a segment: <b>172.16.10.1/16</b> becomes 172.16.0.1 – 172.16.255.254.'
+        'Add a segment: <b>192.168.1.0/24</b> or <b>2001:db8::/32</b>.',
+        'This server&apos;s own addresses and private networks are always allowed — no need to add them.'
       ] },
     { key: 'ip_black', t: 'IP blacklist', kind: 'ip',
       head: 'Add the following IP addresses to the blacklist',
       notes: [
         'Every request from these IPs is dropped immediately.',
         'The IP whitelist wins: an IP present in both lists is allowed.',
-        'Single IP, range (<b>192.168.100.6-100</b>) and CIDR (<b>192.168.1.0/24</b>) are all accepted.'
+        'Single IP, range (<b>192.168.100.6-100</b>) and CIDR (<b>192.168.1.0/24</b>, <b>2001:db8::/32</b>) are all accepted, IPv4 and IPv6.'
       ] },
-    { key: 'user_agent', t: 'UA blacklist', kind: 'ua',
+    { key: 'ua_white', t: 'UA whitelist', kind: 'ua',
+      head: 'Skip filtering for requests whose User-Agent matches',
+      ph: 'UptimeRobot|Pingdom',
+      notes: [
+        'Entries are <b>regular expressions</b> matched (case-insensitive) against the User-Agent header.',
+        'Matching requests skip every filter after the IP lists — use it for your own monitoring and payment callbacks.',
+        'A User-Agent is trivial to fake: keep these patterns specific.'
+      ] },
+    { key: 'ua_black', t: 'UA blacklist', kind: 'ua',
       head: 'Block requests whose User-Agent matches',
       ph: 'sqlmap|nikto|masscan',
       notes: [
-        'Entries are <b>regular expressions</b> matched against the User-Agent header.',
-        'These are the same rules shown under <b>Custom rules › User-Agent rules</b>.',
-        'The engine has no UA <i>whitelist</i>, so only a blacklist is offered here.'
+        'Entries are <b>regular expressions</b> matched (case-insensitive) against the User-Agent header.',
+        'Applies to every site, before the per-site filters. The UA whitelist wins over this list.'
       ] },
     { key: 'url_white', t: 'URL whitelist', kind: 'url',
       head: 'Add the following URLs to the whitelist',
-      ph: '/api/callback',
+      ph: '^/api/callback',
       notes: [
         'These URLs skip filtering entirely — only add paths you control.',
-        'Matching is by URL rule, e.g. <b>/api/callback</b>.'
+        'Entries are regular expressions matched against the request URI, e.g. <b>^/api/callback</b>.'
       ] },
     { key: 'url_black', t: 'URL blacklist', kind: 'url',
       head: 'Add the following URLs to the blacklist',
-      ph: '/admin.php',
+      ph: '^/admin\\.php',
       notes: [
         'Requests to these URLs are blocked for everyone.',
         'The IP whitelist still wins over this list.'
+      ] },
+    { key: 'url_keyword', t: 'URL keyword', kind: 'url',
+      head: 'Block requests whose URL contains',
+      ph: 'casino|viagra',
+      notes: [
+        'Matched (case-insensitive, regular expression) against the decoded request line, query string included.',
+        'Use it for spam keywords and paths you never serve.'
       ] }
   ];
   function listDef() { return LIST_DEFS.filter(function (x) { return x.key === S.listKey; })[0]; }
@@ -774,9 +818,7 @@
       var h = '<div class="wp-form-t">' + def.head + '</div>';
       if (def.kind === 'ip') {
         h += formRow('Type', '<div class="wp-seg" id="wp-ip-type"><span class="on" data-v="ipv4">IPv4</span>' +
-          '<span data-v="ipv6" title="The WAF engine only supports IPv4 addresses">IPv6</span></div>' +
-          '<span id="wp-ip6-note" style="display:none;color:var(--wp-orange);font-size:12px;margin-left:10px">' +
-          'The engine stores IPv4 only — IPv6 entries cannot be added.</span>');
+          '<span data-v="ipv6">IPv6</span></div>');
         h += formRow('Start IP', '<input class="wp-in wp-f" id="wp-l-start" placeholder="Please enter start IP address, e.g.: 192.168.1.1">');
         h += formRow('End IP', '<input class="wp-in wp-f" id="wp-l-end" placeholder="Please enter end IP address, e.g.: 192.168.1.24">');
       } else {
@@ -790,7 +832,7 @@
       h += '<div class="wp-list-bar">' +
         '<span class="wp-btn" id="wp-l-import">Import</span>' +
         '<span class="wp-btn" id="wp-l-export">Export</span>' +
-        (def.kind === 'ua' ? '' : '<span class="wp-btn" id="wp-l-empty">Empty</span>') +
+        '<span class="wp-btn" id="wp-l-empty">Empty</span>' +
         '<div class="wp-search" style="margin-left:auto">' +
         '<input class="wp-in" id="wp-l-q" placeholder="Please enter IP/remarks" value="' + esc(S.listQ || '') + '">' +
         '<span class="wp-search-i">&#9906;</span></div></div>';
@@ -803,12 +845,11 @@
 
       $('#wp-ip-type span').on('click', function () {
         $('#wp-ip-type span').removeClass('on'); $(this).addClass('on');
-        $('#wp-ip6-note').toggle($(this).data('v') === 'ipv6');
+        var v6 = $(this).data('v') === 'ipv6';
+        $('#wp-l-start').attr('placeholder', v6 ? 'e.g.: 2001:db8::1 or 2001:db8::/48' : 'Please enter start IP address, e.g.: 192.168.1.1');
+        $('#wp-l-end').attr('placeholder', v6 ? 'e.g.: 2001:db8::ff (optional)' : 'Please enter end IP address, e.g.: 192.168.1.24');
       });
       function add() {
-        if ($('#wp-ip-type .on').data('v') === 'ipv6') {
-          layer.msg('The WAF engine supports IPv4 only', { icon: 2 }); return;
-        }
         var v = ($('#wp-l-start').val() || '').trim();
         if (!v) { layer.msg('Enter a value', { icon: 0 }); return; }
         var d = { list_name: def.key, value: v, remark: ($('#wp-l-remark').val() || '').trim() };
@@ -1137,8 +1178,10 @@
         conds.push({ field: $r.find('.cr-c-field').val(), op: $r.find('.cr-c-op').val(),
                      extra: $r.find('.cr-c-extra').val(), value: $r.find('.cr-c-value').val() });
       });
-      var payload = { name: $('#cr-name').val(), site: $('#cr-site').val(),
-                      action: $('#cr-action').val(), status_code: $('#cr-code').val(),
+      // rname/act, not name/action: the panel's router owns those two keys
+      // (posting them is what produced "Specific parameters are invalid!")
+      var payload = { rname: $('#cr-name').val(), site: $('#cr-site').val(),
+                      act: $('#cr-action').val(), status_code: $('#cr-code').val(),
                       conds: JSON.stringify(conds) };
       if (edit) payload.id = rule.id;
       post(edit ? 'custom_edit' : 'custom_add', payload, function (rr) {
@@ -1151,10 +1194,10 @@
   /* ================= OVERVIEW ================= */
   function pageOverview() {
     $('#wp-body').html('<div class="wp-loading">Loading dashboard...</div>');
-    post('overview', {}, function (d) {
+    post('overview', { date: S.ovDate || '' }, function (d) {
       if (d.engine_installed === false) {
-        $('#wp-body').html('<div class="wp-note">The <b>Nginx free firewall</b> engine is not installed. ' +
-          'WAF Pro Panel is the management UI for that engine — install it from the App Store first.</div>');
+        $('#wp-body').html('<div class="wp-note">The WAF Pro engine files are missing from /www/server/wafpro. ' +
+          'Reinstall the plugin (App Store &rsaquo; WAF Pro &rsaquo; Repair/Update).</div>');
         return;
       }
       if (!d.status) { $('#wp-body').html('<div class="wp-note">' + esc(d.msg || 'Failed to load') + '</div>'); return; }
@@ -1167,9 +1210,14 @@
       // ---- LEFT column ----
       h += '<div class="wp-col">';
       h += '<div class="wp-daterow">' +
-        '<div class="wp-seg"><span class="' + (S.range === 'yesterday' ? 'on' : '') + '" data-r="yesterday">Yesterday</span>' +
-        '<span class="' + (S.range === 'today' ? 'on' : '') + '" data-r="today">Today</span></div>' +
-        '<span class="wp-count" title="Blocked today">' + num(c.malicious_request) + '</span>' +
+        '<div class="wp-seg" id="wp-range"><span class="' + (S.range === 'yesterday' ? 'on' : '') + '" data-r="yesterday">Yesterday</span>' +
+        '<span class="' + (S.range === 'today' ? 'on' : '') + '" data-r="today">Today</span>' +
+        // the native picker sits invisibly on top of the label, so the
+        // segment reads "Select Date" (or the picked day) like the stock UI
+        '<span class="wp-date' + (S.range === 'day' ? ' on' : '') + '">' +
+          (S.range === 'day' && S.ovDate ? esc(S.ovDate) : 'Select Date') + ' &#128197;' +
+          '<input type="date" id="wp-ov-date" value="' + esc(S.ovDate || '') + '" max="' + todayStr() + '"></span></div>' +
+        '<span class="wp-count" title="Blocked on the selected day">' + num(c.malicious_request) + '</span>' +
         '<span class="wp-btn wp-ref" id="wp-refresh" title="Refresh">&#8635;</span></div>';
       h += '<div class="wp-stat-2">' +
         statCard('Today request', c.today_request, c.today_request_pct, 'Yesterday: ' + num(c.yesterday_request), false) +
@@ -1181,9 +1229,6 @@
       h += '<div class="wp-card"><div class="wp-card-h">' + icoClock() +
         '<span class="t" id="wp-rt-t">Real-time origin response: 0ms</span></div>' +
         '<div id="wp-rt-holder"><div class="wp-chart sm" id="wp-rt-chart"></div></div></div>';
-      h += '<div class="wp-card"><div class="wp-card-h">' + icoWarn() +
-        '<span class="t">Attacked domains TOP10</span></div>' +
-        '<div id="wp-top-domains"></div></div>';
       // what kind of attacks are landing — the engine already counts this per
       // rule, and it is the first thing you want when a number spikes
       h += '<div class="wp-card"><div class="wp-card-h">' + icoPie() +
@@ -1203,7 +1248,8 @@
         '<span class="t">Access / Block Map</span>' +
         '<span class="r"><span style="color:var(--wp-text3);font-size:12px">(*Only shows TOP coordinates)</span>' +
         '<div class="wp-seg" id="wp-map-mode">' +
-        '<span data-m="requests">Requests</span><span class="on" data-m="blocks">Blocks</span></div></span></div>' +
+        '<span data-m="requests">Requests</span><span class="on" data-m="blocks">Blocks</span></div>' +
+        '<span class="wp-lnk" id="wp-to-report">Today&apos;s Block report &gt;&gt;</span></span></div>' +
         '<div class="wp-map-wrap">' +
         '<div><div class="wp-chart" style="height:320px" id="wp-map"></div>' +
         '<div class="wp-legend"><span>Low</span><i class="g1"></i><i class="g2"></i><i class="g3"></i><span>High</span></div></div>' +
@@ -1215,11 +1261,18 @@
       h += '</div>';
       h += '</div>';
 
-      // ---- bottom: remaining TOP10 panels (Attacked domains lives in the left column) ----
-      h += '<div class="wp-row" style="grid-template-columns:repeat(2,1fr)">';
-      h += '<div class="wp-card"><div class="wp-card-h">' + icoChart() + '<span class="t">Traffic ranking TOP10</span></div>' +
+      // ---- bottom: the three TOP10 panels side by side, as in the stock dashboard ----
+      h += '<div class="wp-row wp-top3">';
+      h += '<div class="wp-card"><div class="wp-card-h">' + icoWarn() + '<span class="t">Attacked domains TOP10</span>' +
+        '<span class="r"><span class="wp-lnk wp-more" data-to="blockade">More&gt;&gt;</span></span></div>' +
+        '<div id="wp-top-domains"></div></div>';
+      h += '<div class="wp-card"><div class="wp-card-h">' + icoChart() + '<span class="t">Traffic ranking TOP10</span>' +
+        '<span class="wp-q" title="Bytes served per site today, from the nginx access logs">?</span>' +
+        '<span class="r"><span class="wp-lnk wp-more" data-to="website">More&gt;&gt;</span></span></div>' +
         '<div id="wp-top-traffic"></div></div>';
-      h += '<div class="wp-card"><div class="wp-card-h">' + icoDoc() + '<span class="t">Visited pages TOP10</span></div>' +
+      h += '<div class="wp-card"><div class="wp-card-h">' + icoDoc() + '<span class="t">Visited pages TOP10</span>' +
+        '<span class="wp-q" title="Most requested paths today, from the nginx access logs">?</span>' +
+        '<span class="r"><span class="wp-lnk wp-more" data-to="report">More&gt;&gt;</span></span></div>' +
         '<div id="wp-top-urls"></div></div>';
       h += '</div>';
 
@@ -1236,10 +1289,19 @@
       fillOverview(d);
 
       $('#wp-refresh').on('click', pageOverview);
-      $('.wp-seg span').on('click', function () {
+      $('#wp-ov-date').on('change', function () {
+        S.ovDate = $(this).val() || '';
+        S.range = S.ovDate ? 'day' : 'today';
+        pageOverview();
+      });
+      $('#wp-to-report, .wp-more').on('click', function () {
+        S.tab = $(this).data('to') || 'report'; renderTabs(); route();
+      });
+      // only the date switch — the map has its own segmented control
+      $('#wp-range span[data-r]').on('click', function () {
         S.range = $(this).data('r');
-        $('.wp-seg span').removeClass('on'); $(this).addClass('on');
-        drawMainChart(d);
+        S.ovDate = S.range === 'yesterday' ? dayStr(-1) : '';
+        pageOverview();
       });
 
       $('#wp-map-mode span').on('click', function () {
@@ -1308,12 +1370,23 @@
         itemStyle: { areaColor: '#eef1f3', borderColor: '#dfe4e8' },
         emphasis: { itemStyle: { areaColor: '#e3ece5' }, label: { show: false } }
       },
+      // numbered pins for the busiest spots (like the stock map), plain
+      // dots for the long tail so the map does not turn into a carpet
       series: [{
+        type: 'scatter', coordinateSystem: 'geo', zlevel: 3, symbol: 'pin',
+        symbolSize: function (v) { return Math.max(30, Math.min(44, 30 + (v[2] / max) * 14)); },
+        itemStyle: { color: mode === 'blocks' ? '#5864d6' : '#20a53a' },
+        label: { show: true, color: '#fff', fontSize: 10, fontWeight: 600,
+                 formatter: function (p) { return p.data.meta.count > 999 ? '999+' : p.data.meta.count; } },
+        data: pts.slice(0, 5).map(function (p) {
+          return { name: p.country || '', value: [p.lon, p.lat, p.count], meta: p };
+        })
+      }, {
         type: 'effectScatter', coordinateSystem: 'geo', zlevel: 2,
         rippleEffect: { brushType: 'stroke', scale: 2.5 },
-        symbolSize: function (v) { return Math.max(6, Math.min(26, 6 + (v[2] / max) * 20)); },
+        symbolSize: function (v) { return Math.max(5, Math.min(14, 5 + (v[2] / max) * 10)); },
         itemStyle: { color: color },
-        data: pts.map(function (p) {
+        data: pts.slice(5).map(function (p) {
           return { name: p.country || '', value: [p.lon, p.lat, p.count], meta: p };
         })
       }]
@@ -1384,9 +1457,18 @@
     'cc-blocked': 'CC flood', 'banned': 'Auto-banned IP', 'ip-black': 'IP blacklist',
     'url-black': 'URL blacklist', 'deny-ext': 'Forbidden file', 'upload-ext': 'Webshell upload',
     'php-path': 'PHP in upload dir', 'method': 'Bad HTTP method', 'header': 'Oversized header',
-    'region:intercept': 'Region blocked', 'region:pass': 'Region not allowed'
+    'region:intercept': 'Region blocked', 'region:pass': 'Region not allowed',
+    'ua-black': 'UA blacklist', 'url-keyword': 'URL keyword', 'http-package': 'Oversized body',
+    'deny-path': 'Forbidden URL', 'hotlink': 'Anti-leech', 'protected-url': 'Protected URL',
+    'api': 'API defense', 'php2shell': 'PHP2Shell guard', 'form-data': 'Malformed form-data',
+    'challenge': 'Browser verification', 'malicious-ip': 'Malicious IP feed', 'nday': 'Known exploit (N-day)',
+    'idc': 'Datacenter (IDC) IP',
+    'fake-spider': 'Fake spider', 'smart-cc': 'Smart CC', 'crawl': 'Crawl limit',
+    'waiting-room': 'Waiting room', 'sensitive': 'Sensitive word', 'traffic': 'Traffic limit',
+    'traffic-block': 'Traffic limit (block)', 'custom': 'Custom rule'
   };
-  function ruleLabel(k) { return RULE_LABELS[k] || k; }
+  // custom:<id> and similar carry a suffix; region:* keeps its own labels
+  function ruleLabel(k) { return RULE_LABELS[k] || RULE_LABELS[String(k).split(':')[0]] || k; }
 
   function renderByRule(by) {
     var items = Object.keys(by).map(function (k) {
@@ -1410,15 +1492,18 @@
     var ch = d.chart || {};
     ec('wp-main-chart', {
       tooltip: { trigger: 'axis', axisPointer: { type: 'line' } },
-      legend: { data: ['Total requests', 'After filtering', 'Blocked', 'IP count'], top: 0, icon: 'circle', itemWidth: 8, textStyle: { fontSize: 11, color: '#5c6470' } },
-      grid: { left: 40, right: 16, top: 32, bottom: 24 },
+      legend: { data: ['Total requests', 'After filtering', 'Traffic', 'IP count'], top: 0, icon: 'circle', itemWidth: 8, textStyle: { fontSize: 11, color: '#5c6470' } },
+      grid: { left: 48, right: 64, top: 32, bottom: 24 },
       xAxis: { type: 'category', data: ch.hours || [], boundaryGap: false, axisLine: { lineStyle: { color: '#ebedf0' } }, axisLabel: { color: '#9aa1ab', fontSize: 11 } },
-      yAxis: { type: 'value', splitLine: { lineStyle: { color: '#f4f5f6', type: 'dashed' } }, axisLabel: { color: '#9aa1ab', fontSize: 11 } },
+      yAxis: [
+        { type: 'value', splitLine: { lineStyle: { color: '#f4f5f6', type: 'dashed' } }, axisLabel: { color: '#9aa1ab', fontSize: 11 } },
+        { type: 'value', splitLine: { show: false }, axisLabel: { color: '#9aa1ab', fontSize: 11, formatter: '{value} MB' } }
+      ],
       series: [
-        { name: 'Total requests', type: 'line', smooth: true, symbol: 'none', data: ch.total || [], lineStyle: { width: 2, color: '#20a53a' }, areaStyle: { color: 'rgba(32,165,58,.08)' } },
-        { name: 'After filtering', type: 'line', smooth: true, symbol: 'none', data: ch.after_filter || [], lineStyle: { width: 1.5, color: '#a8b4c0' } },
-        { name: 'Blocked', type: 'line', smooth: true, symbol: 'none', data: ch.blocked || [], lineStyle: { width: 2, color: '#ef4d4d' }, areaStyle: { color: 'rgba(239,77,77,.08)' } },
-        { name: 'IP count', type: 'line', smooth: true, symbol: 'none', data: ch.ips || [], lineStyle: { width: 1.5, color: '#22c3c3' } }
+        { name: 'Total requests', type: 'line', smooth: true, symbol: 'none', data: ch.total || [], lineStyle: { width: 2, color: '#20a53a' }, itemStyle: { color: '#20a53a' }, areaStyle: { color: 'rgba(32,165,58,.08)' } },
+        { name: 'After filtering', type: 'line', smooth: true, symbol: 'none', data: ch.after_filter || [], lineStyle: { width: 1.5, color: '#a3c9f5' }, itemStyle: { color: '#a3c9f5' } },
+        { name: 'Traffic', type: 'line', smooth: true, symbol: 'none', yAxisIndex: 1, data: ch.traffic_mb || [], lineStyle: { width: 1.5, color: '#3b82f6' }, itemStyle: { color: '#3b82f6' } },
+        { name: 'IP count', type: 'line', smooth: true, symbol: 'none', data: ch.ips || [], lineStyle: { width: 1.5, color: '#7fd196' }, itemStyle: { color: '#7fd196' } }
       ]
     });
   }
@@ -1554,10 +1639,13 @@
       '<th style="width:130px">Waiting Room / Rate Limit <span class="wp-q" title="Past this many requests/second the overflow gets a retry page instead of a timeout.">?</span></th>' +
       '<th style="width:110px">CC Defense</th>' +
       '<th style="width:60px">Status</th>' +
-      '<th style="width:100px">Operate</th></tr></thead><tbody>';
+      '<th style="width:150px">Operate</th></tr></thead><tbody>';
     h += rows.length ? rows.map(function (s) {
       return '<tr>' +
-        '<td class="ell" style="color:var(--wp-text);font-weight:600" title="' + esc(s.name) + '">' + esc(s.name) + '</td>' +
+        '<td class="ell" style="color:var(--wp-text);font-weight:600" title="' + esc((s.domains || []).join(', ')) + '">' + esc(s.name) +
+          (s.domains && s.domains.length && (s.domains.length > 1 || s.domains[0] !== s.name)
+            ? '<div style="font-weight:400;color:var(--wp-text3);font-size:11px;max-width:260px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">' +
+              esc(s.domains.filter(function (x) { return x !== s.name; }).join(', ')) + '</div>' : '') + '</td>' +
         '<td style="color:' + (s.intercepts ? 'var(--wp-red)' : 'var(--wp-text3)') + ';font-weight:600">' + num(s.intercepts) + '</td>' +
         '<td>' + cbx(s.name, 'fake_spider', s.fake_spider) + '</td>' +
         '<td>' + cbx(s.name, 'cdn', s.cdn) + '</td>' +
@@ -1573,7 +1661,9 @@
           : '<span class="wp-dis">Disable</span>') + '</td>' +
         '<td><label class="wp-sw"><input type="checkbox" class="wp-site-sw" data-n="' + esc(s.name) + '"' + (s.open ? ' checked' : '') + '><span class="sl"></span></label></td>' +
         '<td><span class="wp-lnk wp-site-log" data-n="' + esc(s.name) + '">Log</span> <span style="color:var(--wp-border)">|</span> ' +
-        '<span class="wp-lnk wp-site-mod" data-n="' + esc(s.name) + '">Modify</span></td></tr>';
+        '<span class="wp-lnk wp-site-mod" data-n="' + esc(s.name) + '">Modify</span> <span style="color:var(--wp-border)">|</span> ' +
+        '<span class="wp-lnk wp-site-rules" data-n="' + esc(s.name) + '">Rules' +
+          (ruleTotal(s) ? ' (' + ruleTotal(s) + ')' : '') + '</span></td></tr>';
     }).join('') : '<tr><td colspan="10" class="wp-empty">' +
       (S.sites.length ? 'No site matches "' + esc(S.siteQ) + '"' : 'No sites configured in the WAF engine') + '</td></tr>';
     h += '</tbody></table>';
@@ -1625,6 +1715,7 @@
       S.tab = 'blockade'; renderTabs(); route();
     });
     $('.wp-site-mod').on('click', function () { siteModify($(this).data('n')); });
+    $('.wp-site-rules').on('click', function () { siteRules($(this).data('n'), 'dpath'); });
   }
 
   function cbx(name, field, on) {
@@ -1637,13 +1728,39 @@
       var body = '<div class="wp-modal" id="wp-mod">' +
         '<div class="wp-mod-head">' +
           '<div class="wp-mod-site">' + esc(name) + '</div>' +
-          '<div class="wp-mod-meta">Applies within a couple of seconds — no nginx reload.</div>' +
+          '<div class="wp-mod-meta">' + ((siteRow(name) || {}).domains || []).map(esc).join(', ') +
+          ' &middot; applies within a couple of seconds — no nginx reload.</div>' +
         '</div>' +
         '<div class="wp-mod-body">' +
 
         modSec('Protection', [
           modRow2('Protection', modSw('m-open', c.open), 'Master switch for this site'),
-          modRow2('Scan protection', modSw('m-scan', c.scan), 'Block probes for .env, .git, backups')
+          modRow2('Scan protection', modSw('m-scan', c.scan), 'Block probes for .env, .git, backups'),
+          modRow2('CDN', modSw('m-cdn', c.cdn),
+            'The site sits behind a CDN/proxy: take the visitor IP from CF-Connecting-IP / X-Forwarded-For. ' +
+            'Leave off otherwise — visitors could fake their IP.'),
+          modRow2('Fake spider', modSw('m-spider', c.fake_spider),
+            'Block clients that claim to be Googlebot/Bingbot/Applebot from IPs those crawlers do not use'),
+          modRow2('IDC interception', modSw('m-idc', c.idc),
+            'Refuse visitors from cloud/datacenter networks (AWS, Google Cloud, Oracle, DigitalOcean, Linode). ' +
+            'Verified search crawlers still pass. Needs the list from Global &rsaquo; CC defense.')
+        ]) +
+
+        modSec('Website vulnerability defense', [
+          modRow2('N-day exploits', modSw('m-nday', c.nday),
+            'Virtual patches for public CVEs (PHP-CGI, ThinkPHP, PHPUnit, Ignition, Spring, Struts, F5...)'),
+          modRow2('PHP2Shell guard', modSw('m-php-guard', c.php_guard),
+            'Blocks the known triggers of CVE-2026-109618/109619 in uploads (no length, upload-progress field, ' +
+            'part/header/nesting floods). Updating PHP is still the real fix.'),
+          modRow2('From-data check', modSw('m-form-strict', c.form_strict),
+            'Reject malformed multipart/form-data bodies (no boundary, parts without Content-Disposition)'),
+          modRow2('Non-browser', modSw('m-browser', c.browser),
+            'Page loads must run JavaScript once (cookie for a day). Blocks curl/scripts/scrapers; ' +
+            'verified search crawlers, APIs and assets are not affected.'),
+          modRow2('HTTP package',
+            '<input class="wp-in" id="m-body-max" type="number" min="0" value="' + (c.body_max || 0) + '"> ' +
+            '<span class="wp-unit">KB (0 = off)</span>',
+            'Largest request body allowed, uploads excluded')
         ]) +
 
         modSec('Request filters', [
@@ -1664,7 +1781,13 @@
             '<input class="wp-in" id="m-cc-block" type="number" value="' + (c.cc_block || 600) + '"> ' +
             '<span class="wp-unit">seconds</span>', 'How long an offending IP stays blocked'),
           modRow2('Smart CC', modSw('m-smart', c.smart_cc),
-            'Tighten each visitor&apos;s allowance automatically while the whole site is under load')
+            'Tighten each visitor&apos;s allowance automatically while the whole site is under load'),
+          modRow2('Over the limit',
+            '<select class="wp-in" id="m-cc-mode" style="width:220px">' +
+            '<option value="block"' + (c.cc_mode !== 'challenge' ? ' selected' : '') + '>Block the IP</option>' +
+            '<option value="challenge"' + (c.cc_mode === 'challenge' ? ' selected' : '') + '>Ask to verify (browser check)</option>' +
+            '</select>',
+            'Verify: a real browser passes the check and gets 4x the allowance; scripts stay blocked')
         ]) +
 
         modSec('Traffic control', [
@@ -1699,7 +1822,7 @@
           '<span class="wp-btn primary" id="m-save">Save</span>' +
         '</div></div>';
       layer.open({
-        type: 1, title: 'Modify site — ' + name, area: ['680px', '640px'], content: body,
+        type: 1, title: 'Modify site — ' + name, area: ['720px', '680px'], content: body,
         success: function () {
           $('#m-cancel').on('click', function () { layer.closeAll('page'); });
           $('#m-save').on('click', function () {
@@ -1717,6 +1840,13 @@
               crawl_limit: parseInt($('#m-crawl-limit').val() || 30, 10),
               wait: $('#m-wait').is(':checked'),
               wait_limit: parseInt($('#m-wait-limit').val() || 200, 10),
+              php_guard: $('#m-php-guard').is(':checked'),
+              nday: $('#m-nday').is(':checked'),
+              idc: $('#m-idc').is(':checked'),
+              form_strict: $('#m-form-strict').is(':checked'),
+              browser: $('#m-browser').is(':checked'),
+              body_max: Math.max(parseInt($('#m-body-max').val() || 0, 10), 0),
+              cc_mode: $('#m-cc-mode').val(),
               deny_ext: cleanCsv($('#m-deny-ext').val()),
               upload_ext: cleanCsv($('#m-upload-ext').val()),
               php_path: cleanCsv($('#m-php-path').val())
@@ -1749,6 +1879,108 @@
   }
   function modSw(id, on) {
     return '<label class="wp-sw"><input type="checkbox" id="' + id + '"' + (on ? ' checked' : '') + '><span class="sl"></span></label>';
+  }
+
+  function siteRow(name) { return (S.sites || []).filter(function (x) { return x.name === name; })[0]; }
+  function ruleTotal(s) {
+    var c = s.rule_counts || {}, n = 0;
+    Object.keys(c).forEach(function (k) { n += c[k] || 0; });
+    return n;
+  }
+
+  /* ---------- per-site rule lists (WebSite > Rules) ---------- */
+  var SR_KINDS = [
+    { k: 'dpath', t: 'Forbidden URL',
+      note: 'Requests whose path matches one of these regular expressions are refused for this site, e.g. <b>^/install/</b> or <b>\\.git/</b>.',
+      cols: ['URL pattern'], show: function (x) { return [x.rule]; },
+      form: [['rule', 'URL pattern (regex)', '^/install/']] },
+    { k: 'leech', t: 'Anti-Leech',
+      note: 'Files with these extensions may only be embedded from this site&apos;s own domains (always allowed) and the domains listed. ' +
+            'Subdomains of a listed domain are allowed too.',
+      cols: ['Extensions', 'Allowed referer domains', 'Empty referer'],
+      show: function (x) { return [x.exts, x.domains || '— own domains only —', x.allow_empty ? 'Allowed' : 'Blocked']; },
+      form: [['exts', 'Extensions', 'jpg,png,gif,mp4'], ['domains', 'Allowed domains', 'partner.com, cdn.example.com'],
+             ['allow_empty', 'Allow requests without a Referer (direct visits, apps)', 'checkbox']] },
+    { k: 'purl', t: 'Protected URL',
+      note: 'A path matching the pattern only works with <b>?param=value</b> appended — everyone else gets 403. ' +
+            'Handy for hiding admin logins: bookmark <b>/admin-login?key=your-secret</b>.',
+      cols: ['URL pattern', 'Parameter', 'Value'], show: function (x) { return [x.path, x.param, x.value]; },
+      form: [['path', 'URL pattern (regex)', '^/wp-login\\.php'], ['param', 'Parameter name', 'key'],
+             ['value', 'Required value (6+ chars)', 'k8Hs2pQ']] },
+    { k: 'api', t: 'API defense',
+      note: 'For API endpoints: restrict the HTTP methods and cap requests per IP per minute (429 when exceeded).',
+      cols: ['API path', 'Allowed methods', 'Limit / min'],
+      show: function (x) { return [x.path, x.methods || 'any', x.per_min ? x.per_min : 'no limit']; },
+      form: [['path', 'API path pattern (regex)', '^/api/'], ['methods', 'Allowed methods', 'GET,POST'],
+             ['per_min', 'Requests per IP per minute (0 = no limit)', '120']] },
+    { k: 'repl', t: 'Content replace',
+      note: 'Replaces text in HTML pages before they are sent (exact match, case-sensitive). Only uncompressed HTML from ' +
+            'this server is rewritten; pages over 4 MB pass unchanged.',
+      cols: ['Find', 'Replace with'], show: function (x) { return [x.from, x.to]; },
+      form: [['from', 'Text to find', 'old text'], ['to', 'Replace with', 'new text']] }
+  ];
+
+  function siteRules(name, kind) {
+    post('site_rules_get', { siteName: name }, function (r) {
+      if (!r.status) { layer.msg(r.msg || 'error', { icon: 2 }); return; }
+      var cur = SR_KINDS.filter(function (x) { return x.k === kind; })[0] || SR_KINDS[0];
+      var h = '<div class="wp-modal">' +
+        '<div class="wp-mod-head"><div class="wp-mod-site">' + esc(name) + '</div>' +
+        '<div class="wp-mod-meta">' + esc((r.domains || []).join(', ')) + '</div></div>' +
+        '<div class="wp-subtabs">' + SR_KINDS.map(function (x) {
+          var n = (r.data[x.k] || []).length;
+          return '<span class="wp-subtab sr-tab' + (x.k === cur.k ? ' on' : '') + '" data-k="' + x.k + '">' +
+            x.t + (n ? ' (' + n + ')' : '') + '</span>';
+        }).join('') + '</div>' +
+        '<div class="wp-mod-body">' +
+        '<div class="wp-mod-sec"><div class="wp-mod-sec-t">Add</div>' +
+        cur.form.map(function (f) {
+          if (f[2] === 'checkbox') {
+            return modRow2('', '<label style="display:flex;gap:8px;align-items:center;cursor:pointer">' +
+              '<input type="checkbox" id="sr-f-' + f[0] + '" checked> ' + f[1] + '</label>', '');
+          }
+          return modRow2(f[1], '<input class="wp-in wp-wide" id="sr-f-' + f[0] + '" placeholder="' + esc(f[2]) + '">', '', true);
+        }).join('') +
+        modRow2('', '<span class="wp-btn primary" id="sr-add">Add</span>', '') + '</div>' +
+        '<table class="wp-tbl"><thead><tr>' + cur.cols.map(function (c) { return '<th>' + c + '</th>'; }).join('') +
+        '<th style="width:70px">Operate</th></tr></thead><tbody>' +
+        ((r.data[cur.k] || []).length ? r.data[cur.k].map(function (x, i) {
+          return '<tr>' + cur.show(x).map(function (v) {
+            return '<td class="ell" title="' + esc(v) + '">' + esc(v) + '</td>';
+          }).join('') + '<td><span class="wp-lnk sr-del" data-i="' + i + '">Delete</span></td></tr>';
+        }).join('') : '<tr><td colspan="' + (cur.cols.length + 1) + '" class="wp-empty">No rules yet</td></tr>') +
+        '</tbody></table>' +
+        '<ul class="wp-notes"><li>' + cur.note + '</li><li>Changes apply within a couple of seconds — no nginx reload.</li></ul>' +
+        '</div></div>';
+      // switching tabs reopens the dialog; only a real close refreshes the table
+      S.srSwitching = true;
+      layer.closeAll('page');
+      S.srSwitching = false;
+      layer.open({
+        type: 1, title: 'Site rules — ' + name, area: ['820px', '620px'], content: h,
+        success: function () {
+          $('.sr-tab').on('click', function () { siteRules(name, $(this).data('k')); });
+          $('#sr-add').on('click', function () {
+            var d = {};
+            cur.form.forEach(function (f) {
+              var el = $('#sr-f-' + f[0]);
+              d[f[0]] = f[2] === 'checkbox' ? el.is(':checked') : (el.val() || '').trim();
+            });
+            post('site_rule_add', { siteName: name, kind: cur.k, data: JSON.stringify(d) }, function (rr) {
+              layer.msg(rr.msg, { icon: rr.status ? 1 : 2 });
+              if (rr.status) siteRules(name, cur.k);
+            });
+          });
+          $('.sr-del').on('click', function () {
+            post('site_rule_del', { siteName: name, kind: cur.k, index: $(this).data('i') }, function (rr) {
+              layer.msg(rr.msg, { icon: rr.status ? 1 : 2 });
+              if (rr.status) siteRules(name, cur.k);
+            });
+          });
+        },
+        end: function () { if (!S.srSwitching && S.tab === 'website') pageWebsite(); }
+      });
+    });
   }
 
   /* ================= LOGS ================= */
@@ -2154,9 +2386,9 @@
     $('#tl-cancel').on('click', function () { layer.close(idx); });
     $('#tl-ok').on('click', function () {
       var payload = {
-        name: $('#tl-name').val(), site: $('#tl-site').val(), url: $('#tl-url').val(),
+        rname: $('#tl-name').val(), site: $('#tl-site').val(), url: $('#tl-url').val(),
         dim: $('#tl-dim').val(), rate: $('#tl-rate').val(),
-        action: $('#tl-action').val(), status_code: $('#tl-code').val()
+        act: $('#tl-action').val(), status_code: $('#tl-code').val()
       };
       if (edit) payload.id = rule.id;
       post(edit ? 'traffic_edit' : 'traffic_add', payload, function (rr) {
@@ -2537,7 +2769,10 @@
           post('spider_status', {}, function (sp) {
             post('malicious_status', {}, function (ml) {
               post('list_get', { list_name: 'sensitive' }, function (senList) {
-                renderGlobal(c, m, hl, sp, ml, senList);
+                post('idc_status', {}, function (idc) {
+                  S.idcStatus = idc;
+                  renderGlobal(c, m, hl, sp, ml, senList);
+                });
               });
             });
           });
@@ -2593,6 +2828,10 @@
     h += fcard('all', 'Engine wired into nginx',
       'Installs our lua into nginx. Tested before apply, rolled back on failure.',
       sw('g-wired', e.wired));
+    h += fcard('all', 'Engine status', engineStatusText(e, c.health),
+      (e.installed && !e.current
+        ? '<span class="wp-btn primary" id="g-engine-update">Update engine</span>' : '') +
+      '<span class="wp-btn" id="g-selftest">Simulated attack</span>');
 
     /* ===== CC defense ===== */
     h += gsec('cc', 'CC defense');
@@ -2612,6 +2851,15 @@
       'Public abuse feeds (botnets, repeat attackers). When on, blocked on every site. ' +
       (mhave ? num(ml.count) + ' ranges, updated ' + esc(ml.updated) : '<span style="color:var(--wp-red)">not downloaded</span>'),
       sw('g-mal', ml && ml.open) + '<span class="wp-btn" id="g-mal-update">' + (mhave ? 'Synchronize' : 'Download') + '</span>');
+    var idc = S.idcStatus || {};
+    h += fcard('cc', 'Datacenter (IDC) IPs',
+      'Cloud provider address space for the per-site IDC interception switch. ' +
+      (idc.have ? num(idc.count) + ' ranges from ' + esc((idc.sources || []).join(', ')) + ', updated ' + esc(idc.updated)
+                : '<span style="color:var(--wp-red)">not downloaded — IDC interception does nothing</span>'),
+      '<span class="wp-btn" id="g-idc">' + (idc.have ? 'Synchronize' : 'Download') + '</span>');
+    h += fcard('cc', 'Escalating bans',
+      'An IP banned again within a day is banned for longer each time (ban time &times; times banned, up to 24 hours).',
+      sw('g-escalate', c.ban_escalate !== false));
     var have = sp && sp.have;
     h += fcard('cc', 'Verified crawlers',
       'Backs the Fake spider switch on each site. ' +
@@ -2636,6 +2884,15 @@
           '<input type="checkbox" class="g-m" value="' + x + '"' + (onM[x] ? ' checked' : '') +
           (x === 'GET' ? ' disabled' : '') + '>' + x + '</label>';
       }).join('') + '</div>');
+    h += fcard('access', 'Request shape limits',
+      'Parameter and header floods: no real client sends thousands of fields.',
+      '<span class="wp-btn primary" id="g-save-shape">Save</span>',
+      '<div style="display:flex;flex-wrap:wrap;gap:20px">' +
+        '<label style="display:flex;align-items:center;gap:8px">Max parameters (query or form)' +
+        '<input class="wp-in" id="g-max-params" type="number" style="width:90px" value="' + (c.max_params || 8000) + '"></label>' +
+        '<label style="display:flex;align-items:center;gap:8px">Max headers' +
+        '<input class="wp-in" id="g-max-headers" type="number" style="width:90px" value="' + (c.max_headers || 800) + '"></label>' +
+      '</div>');
     var lims = (hl && hl.data) || [];
     h += fcard('access', 'Header size limits', 'Requests with a header longer than this are refused.',
       '<span class="wp-btn primary" id="g-save-h">Save</span>',
@@ -2658,7 +2915,34 @@
         rcRow('g-s-scan', 'Scanner paths', c.scan_status) + rcRow('g-s-cc', 'CC defense', c.cc_status) +
         rcRow('g-s-black', 'Blacklist / ban', c.black_status) + rcRow('g-s-method', 'Bad method', c.method_status) +
         rcRow('g-s-header', 'Oversized header', c.header_status) +
+        rcRow('g-s-php2shell', 'PHP2Shell / form-data', c.php2shell_status) +
+        rcRow('g-s-custom', 'Custom rule (block)', c.custom_status) +
       '</div>');
+    var mpIn = function (id, label, val, unit) {
+      return '<label style="display:flex;align-items:center;gap:8px"><span style="width:170px;color:var(--wp-text2)">' + label +
+        '</span><input class="wp-in" id="' + id + '" type="number" min="1" style="width:90px" value="' + val + '"> ' +
+        '<span class="wp-unit">' + (unit || '') + '</span></label>';
+    };
+    h += fcard('vuln', 'PHP2Shell guard limits',
+      'CVE-2026-109618 / 109619 are reached through PHP&apos;s multipart parser. These bounds apply on every site ' +
+      'with the PHP2Shell guard on (WebSite &rsaquo; Modify). <b>Updating PHP is the only complete fix</b> — ' +
+      'the Simulated attack check lists any unpatched PHP on this server.',
+      '<span class="wp-btn primary" id="g-save-mp">Save</span>',
+      '<div style="display:grid;grid-template-columns:1fr 1fr;gap:12px 30px">' +
+        mpIn('g-mp-parts', 'Max parts per request', c.mp_max_parts || 500) +
+        mpIn('g-mp-headers', 'Max headers per part', c.mp_max_headers || 16) +
+        mpIn('g-mp-depth', 'Max field nesting a[b][c]', c.mp_max_depth || 10, 'levels') +
+        mpIn('g-mp-empty', 'Max empty file fields', c.mp_max_empty || 50) +
+      '</div>');
+    h += fcard('vuln', 'Filter rule sets',
+      'The regular expressions behind the GET / POST / Cookie / User-Agent / Scanner filters and the N-day virtual patches. ' +
+      'Turn single rules off when one misfires on your site, or add your own.',
+      '<span class="wp-btn primary" id="g-rulesets">Edit rules</span>');
+    h += fcard('vuln', 'Block &amp; verification pages',
+      'The page a blocked visitor sees (for 4xx responses; 444 just closes the connection), and the browser check page.',
+      sw('g-blockpage', c.block_page !== false) +
+      '<span class="wp-btn" id="g-edit-block">Edit block page</span>' +
+      '<span class="wp-btn" id="g-edit-challenge">Edit check page</span>');
 
     /* ===== Sensitive words ===== */
     h += gsec('sensitive', 'Sensitive words');
@@ -2707,7 +2991,29 @@
         cookie_status: +$('#g-s-cookie').val(), ua_status: +$('#g-s-ua').val(),
         scan_status: +$('#g-s-scan').val(), cc_status: +$('#g-s-cc').val(),
         black_status: +$('#g-s-black').val(), method_status: +$('#g-s-method').val(),
-        header_status: +$('#g-s-header').val() });
+        header_status: +$('#g-s-header').val(), php2shell_status: +$('#g-s-php2shell').val(),
+        custom_status: +$('#g-s-custom').val() });
+    });
+    $('#g-save-mp').on('click', function () {
+      saveCore({ mp_max_parts: +$('#g-mp-parts').val(), mp_max_headers: +$('#g-mp-headers').val(),
+                 mp_max_depth: +$('#g-mp-depth').val(), mp_max_empty: +$('#g-mp-empty').val() });
+    });
+    $('#g-blockpage').on('change', function () { saveCore({ block_page: $(this).is(':checked') }); });
+    $('#g-edit-block').on('click', function () { pageEditor('block'); });
+    $('#g-edit-challenge').on('click', function () { pageEditor('challenge'); });
+    $('#g-selftest').on('click', function () { selfTestDialog(''); });
+    $('#g-rulesets').on('click', function () { ruleSetDialog('get'); });
+    $('#g-escalate').on('change', function () { saveCore({ ban_escalate: $(this).is(':checked') }); });
+    $('#g-save-shape').on('click', function () {
+      saveCore({ max_params: +$('#g-max-params').val(), max_headers: +$('#g-max-headers').val() });
+    });
+    $('#g-idc').on('click', function () {
+      var $b = $(this).text('...');
+      post('idc_update', {}, function (rr) { layer.msg(rr.msg, { icon: rr.status ? 1 : 2 }); if (rr.status) route(); else $b.text('Synchronize'); });
+    });
+    $('#g-engine-update').on('click', function () {
+      var ld = layer.msg('Updating engine...', { icon: 16, time: 0, shade: 0.3 });
+      post('engine_update', {}, function (rr) { layer.close(ld); layer.msg(rr.msg, { icon: rr.status ? 1 : 2 }); route(); });
     });
     $('#g-save-m').on('click', function () {
       var ms = ['GET'];
@@ -2760,6 +3066,263 @@
         post('restore_config', {}, function (rr) { layer.msg(rr.msg, { icon: rr.status ? 1 : 2 }); if (rr.status) route(); });
       });
     });
+  }
+
+  function engineStatusText(e, hl) {
+    var out = [];
+    (e.conflicts || []).forEach(function (x) {
+      out.push('<span style="color:var(--wp-red)">Conflict: ' + esc(x) + ' — only one lua WAF can run.</span>');
+    });
+    if (!e.installed) out.push('<span style="color:var(--wp-red)">Engine files missing — reinstall the plugin.</span>');
+    else if (!e.current) out.push('<span style="color:var(--wp-orange)">The running engine is older than this plugin — click Update engine.</span>');
+    if (e.wired && hl) {
+      if (!hl.alive) out.push('<span style="color:var(--wp-red)">No heartbeat from nginx workers' +
+        (hl.heartbeat_age ? ' for ' + hl.heartbeat_age + ' s' : '') + ' — check the nginx error log.</span>');
+      else if (!hl.in_sync) out.push('<span style="color:var(--wp-orange)">Workers run rules v' + hl.running_version +
+        ', panel saved v' + hl.rule_version + ' — catching up.</span>');
+      else out.push('<span style="color:var(--wp-green)">&#10004; Enforcing the latest settings (rules v' + hl.rule_version +
+        ', engine ' + esc(hl.engine_version) + ').</span>');
+    } else if (!e.wired) {
+      out.push('Not wired: settings are saved but not enforced.');
+    }
+    return out.join('<br>');
+  }
+
+  /* ---------- filter rule sets ---------- */
+  var RULE_SETS = [
+    ['get', 'GET-param filter', 'Matched against the decoded query string.'],
+    ['post', 'POST filter', 'Matched against urlencoded form bodies.'],
+    ['cookie', 'Cookie filter', 'Matched against the Cookie header.'],
+    ['ua', 'User-Agent filter', 'Matched against the User-Agent header.'],
+    ['scan', 'Scanner', 'Matched against the request path.'],
+    ['nday', 'N-day exploits', 'Virtual patches for public CVEs; matched against the decoded request line and form body.']
+  ];
+  function ruleSetDialog(name) {
+    post('rule_get', { rule_name: name }, function (r) {
+      if (!r.status) return layer.msg(r.msg || 'error', { icon: 2 });
+      var cur = RULE_SETS.filter(function (x) { return x[0] === name; })[0];
+      var h = '<div class="wp-modal">' +
+        '<div class="wp-subtabs">' + RULE_SETS.map(function (x) {
+          return '<span class="wp-subtab rs-tab' + (x[0] === name ? ' on' : '') + '" data-k="' + x[0] + '">' + x[1] + '</span>';
+        }).join('') + '</div><div class="wp-mod-body">' +
+        '<div style="display:flex;gap:8px;margin-bottom:12px">' +
+          '<input class="wp-in" id="rs-rule" placeholder="Regular expression (PCRE, case-insensitive)" style="flex:2">' +
+          '<input class="wp-in" id="rs-ps" placeholder="Description" style="flex:1">' +
+          '<span class="wp-btn primary" id="rs-add">Add</span></div>' +
+        '<table class="wp-tbl"><thead><tr><th>Rule</th><th style="width:260px">Description</th>' +
+        '<th style="width:70px">Status</th><th style="width:70px">Operate</th></tr></thead><tbody>' +
+        ((r.data || []).length ? r.data.map(function (x) {
+          return '<tr><td style="font-family:ui-monospace,Menlo,monospace;font-size:12px;word-break:break-all">' + esc(x.rule) + '</td>' +
+            '<td>' + esc(x.ps) + '</td>' +
+            '<td><label class="wp-sw"><input type="checkbox" class="rs-on" data-i="' + x.index + '"' + (x.open ? ' checked' : '') +
+            '><span class="sl"></span></label></td>' +
+            '<td><span class="wp-lnk rs-del" data-i="' + x.index + '">Delete</span></td></tr>';
+        }).join('') : '<tr><td colspan="4" class="wp-empty">No rules</td></tr>') +
+        '</tbody></table><ul class="wp-notes"><li>' + cur[2] + '</li>' +
+        '<li>A rule fires on a match anywhere in the subject; anchor with ^ and $ to be precise. Changes apply in a couple of seconds.</li></ul>' +
+        '</div></div>';
+      S.srSwitching = true; layer.closeAll('page'); S.srSwitching = false;
+      layer.open({ type: 1, title: 'Filter rule sets', area: ['960px', '640px'], content: h, success: function () {
+        $('.rs-tab').on('click', function () { ruleSetDialog($(this).data('k')); });
+        $('#rs-add').on('click', function () {
+          post('rule_add', { rule_name: name, rule: ($('#rs-rule').val() || '').trim(), ps: ($('#rs-ps').val() || '').trim() },
+            function (rr) { layer.msg(rr.msg, { icon: rr.status ? 1 : 2 }); if (rr.status) ruleSetDialog(name); });
+        });
+        $('.rs-on').on('change', function () {
+          post('rule_toggle', { rule_name: name, index: $(this).data('i'), open: this.checked ? 1 : 0 },
+            function (rr) { layer.msg(rr.msg, { icon: rr.status ? 1 : 2 }); });
+        });
+        $('.rs-del').on('click', function () {
+          var i = $(this).data('i');
+          layer.confirm('Delete this rule?', { title: 'Delete rule' }, function (k) {
+            layer.close(k);
+            post('rule_del', { rule_name: name, index: i }, function (rr) {
+              layer.msg(rr.msg, { icon: rr.status ? 1 : 2 }); if (rr.status) ruleSetDialog(name);
+            });
+          });
+        });
+      } });
+    });
+  }
+
+  // Edit the block / browser-check page served by the engine
+  function pageEditor(kind) {
+    post('get_page', { kind: kind }, function (r) {
+      if (!r.status) return layer.msg(r.msg || 'error', { icon: 2 });
+      var tips = kind === 'block'
+        ? 'Placeholders: <b>{rule}</b> <b>{ip}</b> <b>{time}</b> <b>{status}</b> <b>{id}</b>'
+        : 'Must contain <b>{script}</b> — that is the check itself.';
+      var h = '<div class="wp-modal"><div class="wp-mod-body">' +
+        '<div style="color:var(--wp-text3);font-size:12px;margin-bottom:8px">' + tips + '</div>' +
+        '<textarea class="wp-in" id="pe-html" style="width:100%;height:400px;font-family:ui-monospace,Menlo,monospace;font-size:12px">' +
+        esc(r.html) + '</textarea></div>' +
+        '<div class="wp-mod-foot"><span class="wp-btn" id="pe-default">Restore default</span>' +
+        '<span class="wp-btn" id="pe-cancel">Cancel</span><span class="wp-btn primary" id="pe-save">Save</span></div></div>';
+      var idx = layer.open({ type: 1, title: kind === 'block' ? 'Block page' : 'Browser check page',
+        area: ['820px', '600px'], content: h });
+      $('#pe-cancel').on('click', function () { layer.close(idx); });
+      $('#pe-default').on('click', function () { $('#pe-html').val(r['default']); });
+      $('#pe-save').on('click', function () {
+        post('save_page', { kind: kind, html: $('#pe-html').val() }, function (rr) {
+          layer.msg(rr.msg, { icon: rr.status ? 1 : 2 }); if (rr.status) layer.close(idx);
+        });
+      });
+    });
+  }
+
+  /* ---------- Simulated attack (self-test) ----------
+     The stock WAF lists attack links to click; this sends real attack-shaped
+     requests to each site through nginx and reports which rule stopped them. */
+  function selfTestDialog(site) {
+    var idx = layer.open({ type: 1, title: 'Simulated attack', area: ['900px', '640px'],
+      content: '<div class="wp-modal"><div class="wp-mod-body" id="st-body">' +
+        '<div class="wp-loading">Sending test requests to ' + (site ? esc(site) : 'every protected site') + '...</div></div></div>' });
+    post('self_test', { siteName: site || '' }, function (r) {
+      if (!r.status) { $('#st-body').html('<div class="wp-note">' + esc(r.msg || 'error') + '</div>'); return; }
+      var h = '';
+      var bad = (r.php || []).filter(function (p) { return !p.php2shell_safe; });
+      if (bad.length) {
+        h += '<div class="wp-note" style="margin-bottom:12px;color:var(--wp-red)">' + icoWarn() +
+          ' PHP2Shell (CVE-2026-109618/109619): unpatched PHP on this server — ' + bad.map(function (p) {
+            return esc(p.version) + (p.fixed_in ? ' (fixed in ' + esc(p.fixed_in) + ')' : ' (no fix for this branch — upgrade)');
+          }).join(', ') + '. The WAF guard reduces the risk; updating PHP removes it.</div>';
+      } else if ((r.php || []).length) {
+        h += '<div class="wp-note" style="margin-bottom:12px">' + '&#10004; PHP on this server carries the PHP2Shell fix: ' +
+          r.php.map(function (p) { return esc(p.version); }).join(', ') + '.</div>';
+      }
+      (r.sites || []).forEach(function (s) {
+        h += '<div class="wp-mod-sec"><div class="wp-mod-sec-t">' + esc(s.site) +
+          ' <span style="text-transform:none;font-weight:400;color:var(--wp-text3)">' + esc(s.scheme + '://' + s.host) + '</span> ' +
+          (s.ok ? '<span style="color:var(--wp-green)">&#10004; protected</span>' : '<span style="color:var(--wp-red)">&#10008; gaps found</span>') +
+          '</div><table class="wp-tbl"><thead><tr><th>Test</th><th style="width:70px">HTTP</th>' +
+          '<th style="width:200px">Stopped by</th><th style="width:150px">Result</th></tr></thead><tbody>' +
+          s.tests.map(function (t) {
+            var res = t.pass === null ? '<span style="color:var(--wp-text3)">protection off</span>'
+              : t.pass ? '<span style="color:var(--wp-green)">&#10004; ' + (t.baseline ? 'passed through' : 'blocked') + '</span>'
+              : '<span style="color:var(--wp-red)">&#10008; ' + (t.baseline ? 'wrongly blocked' : 'NOT blocked') + '</span>';
+            return '<tr><td>' + esc(t.label) + '</td><td>' + (t.status || 'closed') + '</td>' +
+              '<td>' + esc(t.rule_name || '-') + '</td><td>' + res + '</td></tr>';
+          }).join('') + '</tbody></table></div>';
+      });
+      if (!(r.sites || []).length) h += '<div class="wp-empty">No site with a domain to test.</div>';
+      h += '<ul class="wp-notes"><li>Requests go from this server through nginx with a one-time secret header, so they are ' +
+        'judged like a stranger&apos;s but never get this server banned. They appear in the logs with <b>wafpro_test=</b> in the URL.</li></ul>';
+      $('#st-body').html(h);
+    });
+    return idx;
+  }
+
+  /* ================= WEBSHELL ================= */
+  function pageWebshell() {
+    $('#wp-body').html('<div class="wp-loading">Loading...</div>');
+    if (!S.sites) {
+      post('get_sites', {}, function (r) { S.sites = r.data || []; pageWebshell(); });
+      return;
+    }
+    post('webshell_results', {}, function (r) {
+      if (!r.status) { $('#wp-body').html('<div class="wp-note">' + esc(r.msg || 'error') + '</div>'); return; }
+      var sc = r.scan || {};
+      var lvl = { 3: ['High', 'var(--wp-red)'], 2: ['Medium', 'var(--wp-orange)'], 1: ['Low', 'var(--wp-blue)'] };
+      var h = '<div class="wp-card">';
+      h += '<div style="display:flex;align-items:center;gap:12px;margin-bottom:14px;flex-wrap:wrap">' +
+        '<select class="wp-in" id="ws-site" style="width:220px"><option value="">All PHP sites</option>' +
+        (S.sites || []).map(function (x) { return '<option value="' + esc(x.name) + '">' + esc(x.name) + '</option>'; }).join('') +
+        '</select>' +
+        '<span class="wp-btn primary" id="ws-scan">' + (sc.running ? 'Scanning...' : 'Scan now') + '</span>' +
+        '<span style="color:var(--wp-text3)" id="ws-state">' + wsState(sc, r) + '</span></div>';
+      var files = r.files || [];
+      h += '<table class="wp-tbl"><thead><tr><th style="width:70px">Risk</th><th>File</th><th style="width:140px">Site</th>' +
+        '<th style="width:220px">Why</th><th style="width:140px">Modified</th><th style="width:190px">Operate</th></tr></thead><tbody>' +
+        (files.length ? files.map(function (f, i) {
+          var L = lvl[f.level] || lvl[1];
+          return '<tr><td><span style="color:' + L[1] + ';font-weight:600">' + L[0] + '</span></td>' +
+            '<td class="ell" title="' + esc(f.file) + '" style="font-family:ui-monospace,Menlo,monospace;font-size:12px">' + esc(f.file) + '</td>' +
+            '<td class="ell">' + esc(f.site) + '</td>' +
+            '<td class="ell" title="' + esc(f.hits.map(function (x) { return x.desc + ' (line ' + x.line + ')'; }).join('\n')) + '">' +
+              esc(f.hits[0].desc) + (f.hits.length > 1 ? ' +' + (f.hits.length - 1) : '') + '</td>' +
+            '<td>' + fmtTime(f.mtime) + '</td>' +
+            '<td><span class="wp-lnk ws-view" data-i="' + i + '">View</span> <span style="color:var(--wp-border)">|</span> ' +
+            '<span class="wp-lnk ws-quar" data-i="' + i + '" style="color:var(--wp-red)">Quarantine</span> <span style="color:var(--wp-border)">|</span> ' +
+            '<span class="wp-lnk ws-ign" data-i="' + i + '">Safe</span></td></tr>';
+        }).join('') : '<tr><td colspan="6" class="wp-empty">' + (r.time ? 'No suspicious files found' : 'No scan yet — click Scan now') + '</td></tr>') +
+        '</tbody></table>';
+      var q = r.quarantine || [];
+      if (q.length) {
+        h += '<div class="wp-mod-sec" style="margin-top:18px"><div class="wp-mod-sec-t">Quarantine</div>' +
+          '<table class="wp-tbl"><thead><tr><th>Original path</th><th style="width:150px">Moved</th><th style="width:160px">Operate</th></tr></thead><tbody>' +
+          q.map(function (x) {
+            return '<tr><td class="ell" style="font-family:ui-monospace,Menlo,monospace;font-size:12px">' + esc(x.file) + '</td>' +
+              '<td>' + fmtTime(x.time) + '</td><td><span class="wp-lnk ws-restore" data-id="' + esc(x.id) + '">Restore</span> ' +
+              '<span style="color:var(--wp-border)">|</span> <span class="wp-lnk ws-purge" data-id="' + esc(x.id) + '" style="color:var(--wp-red)">Delete</span></td></tr>';
+          }).join('') + '</tbody></table></div>';
+      }
+      h += '<ul class="wp-notes">' +
+        '<li>Static signatures only — files are read, never executed. A hit is a lead to check, not a verdict.</li>' +
+        '<li><b>Quarantine</b> moves the file out of the web root (restorable). <b>Safe</b> hides it until its content changes.</li>' +
+        '<li>Scans every PHP site by default; pick a site to scan just that one (any project type).</li></ul></div>';
+      $('#wp-body').html(h);
+
+      $('#ws-scan').on('click', function () {
+        post('webshell_scan', { siteName: $('#ws-site').val() || '' }, function (rr) {
+          layer.msg(rr.msg, { icon: rr.status ? 1 : 2 });
+          if (rr.status) pollWebshell();
+        });
+      });
+      $('.ws-view').on('click', function () {
+        var f = files[$(this).data('i')];
+        post('webshell_view', { file: f.file }, function (rr) {
+          if (!rr.status) return layer.msg(rr.msg, { icon: 2 });
+          layer.open({ type: 1, title: esc(f.file), area: ['900px', '600px'],
+            content: '<div style="padding:14px"><div style="margin-bottom:10px;font-size:12px">' +
+              f.hits.map(function (x) { return '<div><b>' + esc(x.desc) + '</b> — line ' + x.line + '</div>'; }).join('') +
+              '</div><pre style="white-space:pre-wrap;word-break:break-all;font-size:12px;background:#f7f8fa;padding:12px;border-radius:6px;max-height:460px;overflow:auto">' +
+              esc(rr.body) + (rr.truncated ? '\n… (truncated)' : '') + '</pre></div>' });
+        });
+      });
+      $('.ws-quar').on('click', function () {
+        var f = files[$(this).data('i')];
+        layer.confirm('Move ' + esc(f.file) + ' to quarantine? The site loses this file until restored.', { title: 'Quarantine' }, function (i) {
+          layer.close(i);
+          post('webshell_quarantine', { file: f.file }, function (rr) { layer.msg(rr.msg, { icon: rr.status ? 1 : 2 }); if (rr.status) pageWebshell(); });
+        });
+      });
+      $('.ws-ign').on('click', function () {
+        post('webshell_ignore', { file: files[$(this).data('i')].file }, function (rr) { layer.msg(rr.msg, { icon: rr.status ? 1 : 2 }); if (rr.status) pageWebshell(); });
+      });
+      $('.ws-restore').on('click', function () {
+        post('webshell_restore', { id: $(this).data('id') }, function (rr) { layer.msg(rr.msg, { icon: rr.status ? 1 : 2 }); if (rr.status) pageWebshell(); });
+      });
+      $('.ws-purge').on('click', function () {
+        var id = $(this).data('id');
+        layer.confirm('Delete this file permanently? This cannot be undone.', { title: 'Delete' }, function (i) {
+          layer.close(i);
+          post('webshell_delete', { id: id }, function (rr) { layer.msg(rr.msg, { icon: rr.status ? 1 : 2 }); if (rr.status) pageWebshell(); });
+        });
+      });
+      if (sc.running) pollWebshell();
+    });
+  }
+  function wsState(sc, r) {
+    if (sc.running) return 'Scanned ' + num(sc.scanned) + ' files, ' + num(sc.found) + ' suspicious so far...';
+    if (sc.error) return '<span style="color:var(--wp-red)">' + esc(sc.error) + '</span>';
+    if (r && r.time) return 'Last scan ' + fmtTime(r.time) + ' — ' + num(r.scanned) + ' files checked';
+    return '';
+  }
+  function pollWebshell() {
+    if (S.timer) clearInterval(S.timer);
+    S.timer = setInterval(function () {
+      if (S.tab !== 'webshell') { clearInterval(S.timer); S.timer = null; return; }
+      post('webshell_status', {}, function (r) {
+        var sc = r.scan || {};
+        $('#ws-state').html(wsState(sc));
+        if (!sc.running) { clearInterval(S.timer); S.timer = null; pageWebshell(); }
+      });
+    }, 2000);
+  }
+  function fmtTime(t) {
+    if (!t) return '-';
+    var d = new Date(t * 1000), p = function (x) { return (x < 10 ? '0' : '') + x; };
+    return d.getFullYear() + '-' + p(d.getMonth() + 1) + '-' + p(d.getDate()) + ' ' + p(d.getHours()) + ':' + p(d.getMinutes());
   }
 
   function applyGSub() {

@@ -146,19 +146,29 @@ def _parse_ts(s):
         return None
 
 
-def access_stats(days=2):
-    '''Per-site nginx access aggregation for today and yesterday.
+def _day_epoch(day):
+    '''YYYY-MM-DD -> local midnight epoch; None/'' -> now.'''
+    if not day:
+        return time.time()
+    return time.mktime(time.strptime(day, '%Y-%m-%d'))
 
-    Returns dict with today/yesterday totals, hourly buckets, top urls,
-    top domains by traffic and unique IP counts.
+
+def access_stats(day=None):
+    '''Per-site nginx access aggregation for one day and the day before.
+
+    Returns dict with day/previous-day totals, hourly buckets, top urls,
+    top domains by traffic and unique IP counts. Only the tail of each live
+    access log is read, so days older than yesterday come back empty.
     '''
-    cached = cache_get('access_stats')
+    key = 'access_stats' + ('_' + day if day else '')
+    cached = cache_get(key)
     if cached:
         return cached
 
-    now = time.localtime()
+    base = _day_epoch(day)
+    now = time.localtime(base)
     today = (now.tm_year, now.tm_mon, now.tm_mday)
-    y = time.localtime(time.time() - 86400)
+    y = time.localtime(base - 86400)
     yday = (y.tm_year, y.tm_mon, y.tm_mday)
 
     out = {
@@ -229,21 +239,23 @@ def access_stats(days=2):
     out['top_domains'] = sorted(
         [{'domain': k, 'bytes': v} for k, v in domain_bytes.items()],
         key=lambda x: x['bytes'], reverse=True)[:10]
-    return cache_set('access_stats', out)
+    return cache_set(key, out)
 
 
-def waf_stats():
-    '''Aggregate our engine's block log for today and yesterday.
+def waf_stats(day=None):
+    '''Aggregate our engine's block log for one day and the day before.
 
     Our engine writes one file per day (wafpro/YYYY-MM-DD.log), one JSON
     object per line, with the site inside the record.
     '''
-    cached = cache_get('waf_stats')
+    key = 'waf_stats' + ('_' + day if day else '')
+    cached = cache_get(key)
     if cached:
         return cached
 
-    today_s = time.strftime('%Y-%m-%d')
-    yday_s = time.strftime('%Y-%m-%d', time.localtime(time.time() - 86400))
+    base = _day_epoch(day)
+    today_s = time.strftime('%Y-%m-%d', time.localtime(base))
+    yday_s = time.strftime('%Y-%m-%d', time.localtime(base - 86400))
     out = {
         'today': {'blocks': 0}, 'yesterday': {'blocks': 0},
         'hourly': [0] * 24,
@@ -254,7 +266,7 @@ def waf_stats():
     rule_count = defaultdict(int)
 
     if not os.path.isdir(WAF_LOG_DIR):
-        return cache_set('waf_stats', out)
+        return cache_set(key, out)
 
     for day, is_today in ((today_s, True), (yday_s, False)):
         path = WAF_LOG_DIR + day + '.log'
@@ -295,11 +307,15 @@ def waf_stats():
                                 key=lambda x: x['count'], reverse=True)[:10]
     out['by_rule'] = dict(rule_count)
     out['recent'].reverse()
-    return cache_set('waf_stats', out)
+    return cache_set(key, out)
 
 
 def rt_tracking_enabled():
     '''True when the access logs carry our urt= field (origin response time).'''
+    # 2.1+ keeps the format in its own include; older installs had it in
+    # nginx.conf
+    if os.path.exists('/www/server/panel/vhost/nginx/0.wafpro_log_format.conf'):
+        return True
     try:
         body = public_read('/www/server/nginx/conf/nginx.conf')
         return 'log_format wafpro' in body
@@ -416,10 +432,11 @@ def _geo_enrich(top_ips):
     return map_points, by_country
 
 
-def overview():
-    '''Everything the Overview page needs in one call.'''
-    acc = access_stats()
-    waf = waf_stats()
+def overview(day=None):
+    '''Everything the Overview page needs in one call (day: YYYY-MM-DD,
+    default today).'''
+    acc = access_stats(day)
+    waf = waf_stats(day)
     # "Blocks" map = IPs the WAF actually blocked
     map_points, by_country = _geo_enrich(waf['top_ips'])
     # "Requests" map = every visitor seen in the access logs today

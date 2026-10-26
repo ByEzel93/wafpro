@@ -1,14 +1,12 @@
 -- access_by_lua_file: the request hot path. Kept as light as possible — just a
--- cached function call, no dofile / no disk I/O per request (that latency was
--- breaking Nuxt's WebSocket upgrade + SSR streaming and returning 503).
+-- cached function call, no dofile / no disk I/O per request.
+--
+-- WebSocket/Upgrade requests are NOT skipped here any more: bailing on the
+-- mere presence of an Upgrade header let any request bypass the whole WAF by
+-- adding one. The engine instead runs every filter on them and only keeps
+-- them out of the rate counters.
 local w = _G.WAFPRO
 if not w then return end          -- engine not loaded; fail open
-
--- Never touch WebSocket / upgrade handshakes: sitting in their access phase and
--- adding any work corrupts the upgrade. Reverse-proxied apps (Nuxt/Node/etc.)
--- rely on this, so we bail before doing anything.
-local up = ngx.var.http_upgrade
-if up and up ~= '' then return end
 
 local ok, err = pcall(w.access)
 if not ok and err ~= nil then

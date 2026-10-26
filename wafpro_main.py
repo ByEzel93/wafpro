@@ -63,6 +63,22 @@ class wafpro_main:
     def _write_json(self, filename, data):
         return public.writeFile(filename, json.dumps(data, indent=2))
 
+    # The panel's router reads `action`, `name` and `s` from the merged
+    # GET+POST arguments (BTPanel get_input: form fields override the query
+    # string). A form that posts a field called `action` or `name` therefore
+    # hijacks the route itself and the panel answers "Specific parameters are
+    # invalid!" before this plugin ever runs (issue #1). The UI posts those
+    # values under other keys; this reads them back.
+    RESERVED_ARGS = {'name': 'rname', 'action': 'act'}
+
+    def _arg(self, get, key, default=''):
+        alias = self.RESERVED_ARGS.get(key)
+        if alias:
+            v = getattr(get, alias, None)
+            return default if v is None else v
+        v = getattr(get, key, None)
+        return default if v is None else v
+
     # ----------------------------------------------------------------
     # default rule sets (PCRE, matched case-insensitively by ngx.re.find)
     #
@@ -112,6 +128,28 @@ class wafpro_main:
             {'rule': r'\.(sql|bak|old|swp|zip|tar\.gz)$', 'ps': 'Backup/dump probe', 'open': False},
             {'rule': r'/(phpmyadmin|pma|adminer)\b', 'ps': 'Admin tool probe', 'open': False},
         ],
+        # Virtual patches for widely exploited, public CVEs. Matched against
+        # the decoded request line and urlencoded body, on sites with the
+        # N-day switch on. Each pattern is the exploit's own fingerprint, not
+        # a generic keyword, so it stays quiet on normal traffic.
+        'nday': [
+            {'rule': r'[?&](?:-|%ad|\xad)d[+\s]*(?:allow_url_include|auto_prepend_file)', 'ps': 'PHP-CGI argument injection (CVE-2024-4577 / CVE-2012-1823)', 'open': True},
+            {'rule': r'\\think\\(?:app|container|request|template\\driver)', 'ps': 'ThinkPHP 5.x RCE (invokefunction)', 'open': True},
+            {'rule': r'_method=__construct', 'ps': 'ThinkPHP 5.0.x RCE (_method=__construct)', 'open': True},
+            {'rule': r'^/(?:application|runtime)/.+\.(?:log|php)$', 'ps': 'ThinkPHP 3.x log / cache disclosure', 'open': True},
+            {'rule': r'/vendor/phpunit/phpunit/src/util/php/eval-stdin\.php', 'ps': 'PHPUnit eval-stdin RCE (CVE-2017-9841)', 'open': True},
+            {'rule': r'/_ignition/execute-solution', 'ps': 'Laravel Ignition RCE (CVE-2021-3129)', 'open': True},
+            {'rule': r'class\.module\.classloader', 'ps': 'Spring4Shell (CVE-2022-22965)', 'open': True},
+            {'rule': r'/actuator/gateway/routes', 'ps': 'Spring Cloud Gateway RCE (CVE-2022-22947)', 'open': True},
+            {'rule': r'/mgmt/tm/util/bash', 'ps': 'F5 BIG-IP iControl RCE (CVE-2021-22986)', 'open': True},
+            {'rule': r'[%$]\{[^}]{0,200}(?:#_memberaccess|@java\.lang\.runtime|processbuilder|getruntime\(\))', 'ps': 'OGNL/EL injection (Struts2, Confluence CVE-2022-26134)', 'open': True},
+            {'rule': r'/\.(?:%2e|\.)/(?:\.(?:%2e|\.)/|%2e%2e/)', 'ps': 'Apache path traversal (CVE-2021-41773/42013)', 'open': True},
+            {'rule': r'/wp-content/plugins/wp-file-manager/lib/php/connector\.minimal\.php', 'ps': 'WP File Manager upload RCE (CVE-2020-25213)', 'open': True},
+            {'rule': r'/wp-admin/admin-ajax\.php\?action=(?:revslider_show_image|duplicator_download)&', 'ps': 'WordPress plugin file read (RevSlider / Duplicator)', 'open': True},
+            {'rule': r'/index\.php\?s=/?index/\\?think', 'ps': 'ThinkPHP route RCE probe', 'open': True},
+            {'rule': r'/(?:solr/[^/]+/(?:dataimport|config)|druid/indexer/v1/sampler)', 'ps': 'Solr / Druid RCE probe', 'open': True},
+            {'rule': r'/cgi-bin/(?:\.(?:%2e|\.)/|%2e%2e/)+', 'ps': 'cgi-bin traversal to shell', 'open': True},
+        ],
     }
 
     # ----------------------------------------------------------------
@@ -156,6 +194,23 @@ class wafpro_main:
         # CC counts static assets too when True; default False = skip them
         'static_protect': False,
         'start_time': 0,
+        'custom_status': 403,
+        # 4xx blocks show the block page (444 always just closes)
+        'block_page': True,
+        # PHP2Shell / multipart limits (PHP advisory GHSA-w8hw-w9fx-j79w)
+        'php2shell_status': 403,
+        'mp_max_parts': 500,
+        'mp_max_headers': 16,
+        'mp_max_depth': 10,
+        'mp_max_empty': 50,
+        'mp_scan_mb': 64,
+        # request shape limits
+        'max_params': 8000,
+        # how much of a body nginx spilled to disk is still inspected
+        'body_scan_kb': 1024,
+        'max_headers': 800,
+        # repeat offenders get longer bans (x times banned today, max a day)
+        'ban_escalate': True,
     }
     # Empty = allow every method. Anything here is an allow-list.
     DEFAULT_METHODS = ['GET', 'POST', 'HEAD', 'OPTIONS', 'PUT', 'DELETE', 'PATCH']
@@ -188,11 +243,32 @@ class wafpro_main:
         'upload_ext': 'php,php3,php4,php5,phtml,jsp,asp,aspx,exe,sh',
         # paths under which .php must never execute (upload dirs)
         'php_path': '',
+        # PHP2Shell (CVE-2026-109618/109619) multipart guard. Seeded on for
+        # PHP sites only — see _site_defaults.
+        'php_guard': True,
+        # reject malformed multipart/form-data bodies
+        'form_strict': False,
+        # page loads must run JavaScript once (non-browser clients blocked)
+        'browser': False,
+        # what happens past the CC limit: 'block' bans, 'challenge' asks the
+        # visitor to verify it is a browser first
+        'cc_mode': 'block',
+        # largest non-upload request body in KB; 0 = no limit
+        'body_max': 0,
+        # virtual patches for known CVEs (the 'nday' rule set)
+        'nday': True,
+        # refuse visitors from cloud/datacenter address space
+        'idc': False,
     }
     SITE_BOOL_FIELDS = ('open', 'get', 'post', 'cookie', 'ua', 'scan', 'cc_open',
-                        'cdn', 'fake_spider', 'smart_cc', 'crawl', 'wait')
-    SITE_INT_FIELDS = ('cc_limit', 'cc_cycle', 'cc_block', 'crawl_limit', 'wait_limit')
+                        'cdn', 'fake_spider', 'smart_cc', 'crawl', 'wait',
+                        'php_guard', 'form_strict', 'browser', 'nday', 'idc')
+    SITE_INT_FIELDS = ('cc_limit', 'cc_cycle', 'cc_block', 'crawl_limit', 'wait_limit',
+                       'body_max')
     SITE_TEXT_FIELDS = ('deny_ext', 'upload_ext', 'php_path')
+    SITE_CHOICE_FIELDS = {'cc_mode': ('block', 'challenge')}
+    # panel project types whose requests reach PHP
+    PHP_PROJECT_TYPES = ('PHP', 'WP', 'WP2', '')
 
     def _config(self):
         cfg = self._read_json(self.CONFIG, None)
@@ -220,16 +296,18 @@ class wafpro_main:
         if not isinstance(data, dict):
             data = {}
         changed = False
-        for name in self._panel_sites():
+        types = self._panel_site_types()
+        for name in types:
             if name not in data:
-                data[name] = dict(self.DEFAULT_SITE)
+                data[name] = self._site_defaults(types.get(name))
                 changed = True
         # Backfill keys added by a later version, or sites saved before that
         # version keep compiling with the field empty (silently unprotected).
         for name, conf in data.items():
             if not isinstance(conf, dict):
                 continue
-            for k, v in self.DEFAULT_SITE.items():
+            defaults = self._site_defaults(types.get(name))
+            for k, v in defaults.items():
                 if k not in conf:
                     conf[k] = v
                     changed = True
@@ -237,19 +315,81 @@ class wafpro_main:
             self._write_json(self.SITES, data)
         return data
 
-    def _panel_sites(self):
+    def _site_defaults(self, project_type):
+        d = dict(self.DEFAULT_SITE)
+        # The multipart guard reads the whole upload before passing it on;
+        # that is the right trade for PHP (the parser it protects), pointless
+        # for a Node/Python/Go app.
+        d['php_guard'] = (project_type or '') in self.PHP_PROJECT_TYPES
+        return d
+
+    def _panel_site_types(self):
+        '''site name -> panel project_type (PHP, WP2, Node, ...).'''
         try:
-            rows = public.M('sites').field('name').order('name asc').select()
+            rows = public.M('sites').field('name,project_type').order('name asc').select()
             if isinstance(rows, list):
-                return [r['name'] for r in rows if r.get('name')]
+                return {r['name']: (r.get('project_type') or '') for r in rows if r.get('name')}
         except Exception:
             pass
-        return []
+        return {}
+
+    def _panel_sites(self):
+        return sorted(self._panel_site_types().keys())
+
+    # vhost file prefixes aaPanel uses per project type: node_market.conf is
+    # the site "market"
+    VHOST_PREFIXES = ('node_', 'java_', 'go_', 'python_', 'other_', 'net_', 'html_',
+                      'proxy_', 'nodejs_', 'php_')
+
+    def _site_domains(self):
+        '''host -> site name, for the engine's domains.txt.
+
+        Two sources, because neither is complete on its own: the panel's
+        domain table (every domain bound in the UI, incl. Node projects whose
+        site name is not a host at all) and the server_name lines of each
+        site's own vhost (wildcards like *.example.com that people add by
+        hand never reach the table).
+        '''
+        out = {}
+        try:
+            ids = {r['id']: r['name'] for r in public.M('sites').field('id,name').select()}
+            for r in public.M('domain').field('pid,name').select():
+                site = ids.get(r.get('pid'))
+                if site and r.get('name'):
+                    out[str(r['name']).lower().strip()] = site
+        except Exception:
+            pass
+        sites = set(self._panel_sites())
+        for s in sites:
+            out.setdefault(s.lower(), s)
+        try:
+            for fn in os.listdir(NGINX_CONF_D):
+                if not fn.endswith('.conf'):
+                    continue
+                base = fn[:-5]
+                site = base if base in sites else None
+                if not site:
+                    for p in self.VHOST_PREFIXES:
+                        if base.startswith(p) and base[len(p):] in sites:
+                            site = base[len(p):]
+                            break
+                if not site:
+                    continue
+                body = public.readFile(NGINX_CONF_D + fn) or ''
+                for m in re.finditer(r'^\s*server_name\s+([^;]+);', body, re.M):
+                    for h in m.group(1).split():
+                        h = h.lower().strip()
+                        if h and h != '_' and not h.startswith('~') and h not in out:
+                            out[h] = site
+        except Exception:
+            pass
+        return out
 
     METHODS_FILE = PLUGIN_PATH + 'methods.json'
     HDR_FILE = PLUGIN_PATH + 'hdr_limits.json'
     DROP_LOG = WAF_LOG_DIR + 'drop_ip.log'
-    UNBAN_FILE = RULE_DIR + 'unban.txt'
+    # panel-side source; _compile() copies it to rule/unban.txt for the engine
+    UNBAN_FILE = PLUGIN_PATH + 'unban.txt'
 
     def _methods(self):
         m = self._read_json(self.METHODS_FILE, None)
@@ -267,12 +407,31 @@ class wafpro_main:
 
     # ---------- auto-ban (Blockade > IP blocking record) ----------
 
+    # an unban entry only needs to outlive the longest ban it could lift
+    UNBAN_KEEP = 7 * 86400
+
+    def _unban_entries(self):
+        '''unban.txt -> {ip: unix time of the unban}. Pre-2.1 files held bare
+        IPs with no time; those are dropped (they were the bug: kept forever,
+        they re-lifted every later ban of the same address).'''
+        out = {}
+        for line in (public.readFile(self.UNBAN_FILE) or '').split('\n'):
+            f = line.strip().split('|')
+            if len(f) == 2 and f[1].isdigit():
+                out[f[0]] = int(f[1])
+        return out
+
+    def _unban_write(self, entries):
+        now = int(time.time())
+        keep = {ip: ts for ip, ts in entries.items() if now - ts < self.UNBAN_KEEP}
+        public.writeFile(self.UNBAN_FILE, '\n'.join('{}|{}'.format(ip, ts) for ip, ts in keep.items()))
+
     def bans(self, get):
-        '''Currently auto-banned IPs.
+        '''Currently banned IPs (auto-ban, CC, traffic block).
 
         The ban itself lives in the engine's shared dict, which we cannot read
-        from here, so the engine mirrors every ban into drop_ip.log and we
-        report the entries that have not expired yet.
+        from here, so the engine mirrors every ban into drop_ip.log
+        (ip|until|hits|site|rule|start) and we report the live entries.
         '''
         now = int(time.time())
         rows = {}
@@ -280,7 +439,7 @@ class wafpro_main:
             body = public.readFile(self.DROP_LOG) or ''
         except Exception:
             body = ''
-        unbanned = set(x.strip() for x in (public.readFile(self.UNBAN_FILE) or '').split('\n') if x.strip())
+        unbanned = self._unban_entries()
         for line in body.split('\n'):
             f = line.split('|')
             if len(f) < 3:
@@ -289,10 +448,12 @@ class wafpro_main:
                 until = int(f[1])
             except Exception:
                 continue
-            if until <= now or f[0] in unbanned:
+            start = int(f[5]) if len(f) > 5 and f[5].isdigit() else until
+            # a ban that started before its unban is gone; a later one is not
+            if until <= now or (f[0] in unbanned and start <= unbanned[f[0]]):
                 continue
             # later lines win: an IP can be re-banned
-            rows[f[0]] = {'ip': f[0], 'until': until, 'left': until - now,
+            rows[f[0]] = {'ip': f[0], 'until': until, 'left': until - now, 'start': start,
                           'hits': int(f[2]) if f[2].isdigit() else 0,
                           'site': f[3] if len(f) > 3 else '',
                           'rule': f[4] if len(f) > 4 else ''}
@@ -301,8 +462,10 @@ class wafpro_main:
         try:
             if len(body) > 200000:
                 public.writeFile(self.DROP_LOG, '\n'.join(
-                    '{}|{}|{}|{}|{}'.format(r['ip'], r['until'], r['hits'], r['site'], r['rule'])
-                    for r in rows.values()))
+                    '{}|{}|{}|{}|{}|{}'.format(r['ip'], r['until'], r['hits'], r['site'],
+                                              r['rule'], r['start'])
+                    for r in rows.values()) + '\n')
+                os.system('chown www:www {} 2>/dev/null'.format(self.DROP_LOG))
         except Exception:
             pass
         out = sorted(rows.values(), key=lambda x: x['until'], reverse=True)
@@ -312,17 +475,17 @@ class wafpro_main:
                 'retry_time': cfg.get('retry_time', 600)}
 
     def unban(self, get):
-        '''Lift an auto-ban. The engine drops the key on its next resync (~2s),
+        '''Lift a ban. The engine drops the key on its next resync (~2s),
         so the version bump is what actually applies this.'''
+        import ipaddress
         ip = (getattr(get, 'ip', '') or '').strip()
         try:
-            self._ip2int(ip)          # raises on anything that is not IPv4
-        except Exception:
+            ip = str(ipaddress.ip_address(ip))   # canonical, as the engine keys it
+        except ValueError:
             return public.returnMsg(False, 'Invalid IP')
-        cur = [x.strip() for x in (public.readFile(self.UNBAN_FILE) or '').split('\n') if x.strip()]
-        if ip not in cur:
-            cur.append(ip)
-        public.writeFile(self.UNBAN_FILE, '\n'.join(cur[-500:]))
+        entries = self._unban_entries()
+        entries[ip] = int(time.time())
+        self._unban_write(entries)
         self._compile()
         public.WriteLog('WAF Pro', 'unbanned {}'.format(ip))
         return public.returnMsg(True, 'Unbanned {} — takes effect within a few seconds'.format(ip))
@@ -331,11 +494,11 @@ class wafpro_main:
         rows = self.bans(get)['data']
         if not rows:
             return public.returnMsg(True, 'Nothing to unban')
-        cur = [x.strip() for x in (public.readFile(self.UNBAN_FILE) or '').split('\n') if x.strip()]
+        entries = self._unban_entries()
+        now = int(time.time())
         for r in rows:
-            if r['ip'] not in cur:
-                cur.append(r['ip'])
-        public.writeFile(self.UNBAN_FILE, '\n'.join(cur[-500:]))
+            entries[r['ip']] = now
+        self._unban_write(entries)
         self._compile()
         return public.returnMsg(True, 'Cleared {} ban(s)'.format(len(rows)))
 
@@ -383,10 +546,11 @@ class wafpro_main:
         ('googlebot', 'https://developers.google.com/static/crawling/ipranges/common-crawlers.json'),
         ('google-special', 'https://developers.google.com/static/crawling/ipranges/special-crawlers.json'),
         ('bingbot', 'https://www.bing.com/toolbox/bingbot.json'),
+        ('applebot', 'https://search.developer.apple.com/applebot.json'),
     ]
     # UA fragments that claim to be one of the crawlers above
     SPIDER_UA = r'(googlebot|adsbot-google|mediapartners-google|storebot-google|' \
-                r'google-inspectiontool|bingbot|adidxbot|bingpreview|msnbot)'
+                r'google-inspectiontool|bingbot|adidxbot|bingpreview|msnbot|applebot)'
 
     def _spiders(self):
         return self._read_json(self.SPIDER_FILE, None)
@@ -395,14 +559,14 @@ class wafpro_main:
         d = self._spiders()
         return {'status': True,
                 'have': isinstance(d, dict) and bool(d.get('ranges')),
-                'count': len(d.get('ranges', [])) if isinstance(d, dict) else 0,
+                'count': (len(d.get('ranges', [])) + len(d.get('ranges6', []))) if isinstance(d, dict) else 0,
                 'updated': (d or {}).get('updated', ''),
                 'sources': [n for n, _ in self.SPIDER_SOURCES]}
 
     def spider_update(self, get):
         '''Refresh the verified-crawler IP list from the official sources.'''
         import urllib.request
-        got, failed = [], []
+        got, got6, failed = [], [], []
         for name, url in self.SPIDER_SOURCES:
             try:
                 req = urllib.request.Request(url, headers={'User-Agent': 'wafpro'})
@@ -410,30 +574,84 @@ class wafpro_main:
                 data = json.loads(body)
                 n = 0
                 for pfx in data.get('prefixes', []):
-                    v4 = pfx.get('ipv4Prefix')
-                    if not v4:
-                        continue          # ipv6 — our matcher is v4 only
+                    cidr = pfx.get('ipv4Prefix') or pfx.get('ipv6Prefix')
+                    if not cidr:
+                        continue
                     try:
-                        got.append(list(self._cidr_range(v4)))
-                        n += 1
+                        fam, a, b = self._any_range(cidr)
                     except Exception:
                         continue
+                    (got if fam == 4 else got6).append([a, b])
+                    n += 1
                 if not n:
                     failed.append(name)
             except Exception:
                 failed.append(name)
-        if not got:
+        if not got and not got6:
             return public.returnMsg(False, 'Could not fetch any crawler list ({}). '
                                            'Check the server\'s outbound access.'.format(
                                                ', '.join(failed)))
-        merged = self._merge(got)
+        merged, merged6 = self._merge(got), self._merge(got6)
         self._write_json(self.SPIDER_FILE, {
-            'ranges': merged, 'updated': time.strftime('%Y-%m-%d %H:%M:%S'),
-            'failed': failed})
+            'ranges': merged, 'ranges6': merged6,
+            'updated': time.strftime('%Y-%m-%d %H:%M:%S'), 'failed': failed})
         self._compile()
-        msg = 'Verified crawler IPs updated: {} ranges'.format(len(merged))
+        msg = 'Verified crawler IPs updated: {} IPv4 + {} IPv6 ranges'.format(len(merged), len(merged6))
         if failed:
             msg += ' ({} unreachable, kept the rest)'.format(', '.join(failed))
+        public.WriteLog('WAF Pro', msg)
+        return public.returnMsg(True, msg)
+
+    # Datacenter address space, from the lists the providers publish
+    # themselves. Not every host is covered (several publish nothing), so this
+    # is "known cloud", not "every server on the internet".
+    IDC_FILE = PLUGIN_PATH + 'idc.json'
+    IDC_SOURCES = [
+        ('aws', 'https://ip-ranges.amazonaws.com/ip-ranges.json'),
+        ('google-cloud', 'https://www.gstatic.com/ipranges/cloud.json'),
+        ('oracle', 'https://docs.oracle.com/en-us/iaas/tools/public_ip_ranges.json'),
+        ('digitalocean', 'https://digitalocean.com/geo/google.csv'),
+        ('linode', 'https://geoip.linode.com/'),
+    ]
+    CIDR_RE = re.compile(r'(?<![\w:.])((?:\d{1,3}\.){3}\d{1,3}/\d{1,2}|[0-9a-fA-F]{1,4}(?::[0-9a-fA-F]{0,4}){2,7}/\d{1,3})')
+
+    def idc_status(self, get):
+        d = self._read_json(self.IDC_FILE, None)
+        return {'status': True, 'have': isinstance(d, dict) and bool(d.get('ranges')),
+                'count': (len(d.get('ranges', [])) + len(d.get('ranges6', []))) if isinstance(d, dict) else 0,
+                'updated': (d or {}).get('updated', ''), 'failed': (d or {}).get('failed', []),
+                'sources': [n for n, _ in self.IDC_SOURCES]}
+
+    def idc_update(self, get):
+        '''Refresh the datacenter IP list. Every source is just scanned for
+        CIDRs — the formats differ (JSON, CSV) but all list prefixes.'''
+        import urllib.request
+        got, got6, failed = [], [], []
+        for name, url in self.IDC_SOURCES:
+            try:
+                req = urllib.request.Request(url, headers={'User-Agent': 'wafpro'})
+                body = urllib.request.urlopen(req, timeout=30).read().decode('utf-8', 'replace')
+                n = 0
+                for m in self.CIDR_RE.finditer(body):
+                    try:
+                        fam, a, b = self._any_range(m.group(1))
+                    except Exception:
+                        continue
+                    (got if fam == 4 else got6).append([a, b])
+                    n += 1
+                if not n:
+                    failed.append(name)
+            except Exception:
+                failed.append(name)
+        if not got and not got6:
+            return public.returnMsg(False, 'Could not fetch any provider list ({}).'.format(', '.join(failed)))
+        merged, merged6 = self._merge(got), self._merge(got6)
+        self._write_json(self.IDC_FILE, {'ranges': merged, 'ranges6': merged6, 'failed': failed,
+                                         'updated': time.strftime('%Y-%m-%d %H:%M:%S')})
+        self._compile()
+        msg = 'Datacenter IPs updated: {} IPv4 + {} IPv6 ranges'.format(len(merged), len(merged6))
+        if failed:
+            msg += ' ({} unreachable)'.format(', '.join(failed))
         public.WriteLog('WAF Pro', msg)
         return public.returnMsg(True, msg)
 
@@ -449,6 +667,7 @@ class wafpro_main:
         ('blocklist.de', 'https://lists.blocklist.de/lists/strongips.txt'),
         # netblocks that should never appear as a source (hijacked/leased to spammers)
         ('spamhaus-drop', 'https://www.spamhaus.org/drop/drop.txt'),
+        ('spamhaus-drop-v6', 'https://www.spamhaus.org/drop/dropv6.txt'),
         # active botnet C2
         ('feodo', 'https://feodotracker.abuse.ch/downloads/ipblocklist.txt'),
     ]
@@ -464,7 +683,7 @@ class wafpro_main:
         d = self._malicious()
         return {'status': True,
                 'have': isinstance(d, dict) and bool(d.get('ranges')),
-                'count': len(d.get('ranges', [])) if isinstance(d, dict) else 0,
+                'count': (len(d.get('ranges', [])) + len(d.get('ranges6', []))) if isinstance(d, dict) else 0,
                 'updated': (d or {}).get('updated', ''),
                 'open': bool(self._config().get('mal_open')),
                 'sources': [n for n, _ in self.MAL_SOURCES]}
@@ -472,7 +691,7 @@ class wafpro_main:
     def malicious_update(self, get):
         '''Refresh the known-malicious IP list from the public feeds.'''
         import urllib.request
-        got, failed, seen = [], [], 0
+        got, got6, failed, seen = [], [], [], 0
         for name, url in self.MAL_SOURCES:
             try:
                 req = urllib.request.Request(url, headers={'User-Agent': 'wafpro'})
@@ -484,26 +703,25 @@ class wafpro_main:
                     if not line:
                         continue
                     try:
-                        if '/' in line:
-                            got.append(list(self._cidr_range(line)))
-                        else:
-                            v = self._ip2int(line)
-                            got.append([v, v])
-                        n += 1
+                        fam, a, b = self._any_range(line.split()[0])
                     except Exception:
                         continue
+                    (got if fam == 4 else got6).append([a, b])
+                    n += 1
                 seen += n
                 if not n:
                     failed.append(name)
             except Exception:
                 failed.append(name)
-        if not got:
+        if not got and not got6:
             return public.returnMsg(False, 'Could not fetch any feed ({}). '
                                            'Check outbound access.'.format(', '.join(failed)))
         merged = self._merge(got)
-        # Our own IPs must never end up in a feed-driven block list.
+        # Our own IPs never get blocked by it: the engine checks the self/LAN
+        # sets before the feed.
         self._write_json(self.MAL_FILE, {
-            'ranges': merged, 'updated': time.strftime('%Y-%m-%d %H:%M:%S'),
+            'ranges': merged, 'ranges6': self._merge(got6),
+            'updated': time.strftime('%Y-%m-%d %H:%M:%S'),
             'raw': seen, 'failed': failed})
         self._compile()
         msg = 'Malicious IP list updated: {} ranges from {} entries'.format(len(merged), seen)
@@ -553,6 +771,84 @@ p{margin:0;color:#5c6470}
             return self.DEFAULT_WAIT_HTML
         return h
 
+    # Pages the engine serves itself. {placeholders} are filled per request;
+    # the challenge page must keep {script}.
+    DEFAULT_PAGES = {
+        'block': """<!doctype html>
+<html lang="en"><head><meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Request blocked</title>
+<style>
+body{margin:0;min-height:100vh;display:flex;align-items:center;justify-content:center;
+  font:14px/1.6 -apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,Arial,sans-serif;
+  background:#f5f6f8;color:#1f2329}
+.b{width:min(460px,calc(100% - 32px));padding:34px 30px;background:#fff;
+  border:1px solid #ebedf0;border-radius:12px;box-sizing:border-box}
+.i{width:46px;height:46px;border-radius:50%;background:#fdecec;color:#ef4d4d;display:flex;
+  align-items:center;justify-content:center;font-size:24px;font-weight:700;margin-bottom:16px}
+h1{margin:0 0 6px;font-size:19px}
+p{margin:0 0 18px;color:#5c6470}
+dl{margin:0;display:grid;grid-template-columns:auto 1fr;gap:6px 14px;font-size:13px;
+  border-top:1px solid #ebedf0;padding-top:14px}
+dt{color:#9aa1ab}dd{margin:0;word-break:break-all}
+</style></head><body><div class="b">
+<div class="i">!</div>
+<h1>Your request was blocked</h1>
+<p>This website is protected by a web application firewall. If you think this is a
+mistake, contact the site owner and quote the details below.</p>
+<dl><dt>Reason</dt><dd>{rule}</dd><dt>Your IP</dt><dd>{ip}</dd>
+<dt>Time</dt><dd>{time}</dd><dt>Status</dt><dd>{status}</dd><dt>Request ID</dt><dd>{id}</dd></dl>
+</div></body></html>
+""",
+        'challenge': """<!doctype html>
+<html lang="en"><head><meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<meta name="robots" content="noindex">
+<title>Checking your browser</title>
+<style>
+body{margin:0;min-height:100vh;display:flex;align-items:center;justify-content:center;
+  font:15px/1.6 -apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,Arial,sans-serif;
+  background:#f5f6f8;color:#1f2329}
+.b{width:min(420px,calc(100% - 32px));padding:36px 30px;background:#fff;
+  border:1px solid #ebedf0;border-radius:12px;text-align:center;box-sizing:border-box}
+h1{margin:0 0 8px;font-size:19px}p{margin:0;color:#5c6470}
+.s{margin:0 auto 18px;width:30px;height:30px;border:3px solid #ebedf0;
+  border-top-color:#20a53a;border-radius:50%;animation:r .8s linear infinite}
+@keyframes r{to{transform:rotate(360deg)}}
+</style></head><body><div class="b"><div class="s"></div>
+<h1>Checking your browser</h1>
+<p>This only takes a moment. Please enable JavaScript and cookies if this page does not continue.</p>
+</div><script>{script}</script></body></html>
+""",
+    }
+
+    def _page(self, kind):
+        h = public.readFile(PLUGIN_PATH + 'page_' + kind + '.html')
+        return h or self.DEFAULT_PAGES[kind]
+
+    def get_page(self, get):
+        kind = getattr(get, 'kind', '')
+        if kind not in self.DEFAULT_PAGES:
+            return public.returnMsg(False, 'Unknown page')
+        return {'status': True, 'html': self._page(kind), 'default': self.DEFAULT_PAGES[kind]}
+
+    def save_page(self, get):
+        kind = getattr(get, 'kind', '')
+        if kind not in self.DEFAULT_PAGES:
+            return public.returnMsg(False, 'Unknown page')
+        h = getattr(get, 'html', '') or ''
+        if len(h) > 200000:
+            return public.returnMsg(False, 'Page is too large')
+        if kind == 'challenge' and h and '{script}' not in h:
+            return public.returnMsg(False, 'The challenge page must contain {script}')
+        path = PLUGIN_PATH + 'page_' + kind + '.html'
+        if h.strip():
+            public.writeFile(path, h)
+        elif os.path.exists(path):
+            os.remove(path)
+        self._compile()
+        return public.returnMsg(True, 'Page saved')
+
     def get_waiting_html(self, get):
         return {'status': True, 'html': self._waiting_html()}
 
@@ -564,20 +860,44 @@ p{margin:0;color:#5c6470}
         self._compile()
         return public.returnMsg(True, 'Waiting page saved')
 
-    # .bin files _compile() writes itself; anything else matching *.bin is a
-    # stale region rule and gets cleaned up.
-    FIXED_BINS = ('lan.bin', 'ip_white.bin', 'ip_black.bin', 'spider.bin',
-                  'malicious.bin')
+    # .bin/.bin6 sets _compile() writes itself; any other packed file is a
+    # stale region/custom rule and gets cleaned up.
+    FIXED_SETS = ('lan', 'self', 'ip_white', 'ip_black', 'spider', 'malicious', 'idc')
+
+    def _w(self, name, body):
+        '''Write one engine file, readable by the nginx workers (www).'''
+        path = RULE_DIR + name
+        public.writeFile(path, body)
+        try:
+            os.chmod(path, 0o644)
+        except Exception:
+            pass
+
+    def _secret(self, name, length=32):
+        '''A random value generated once and kept (HMAC key, test token).'''
+        path = PLUGIN_PATH + name
+        v = (public.readFile(path) or '').strip()
+        if len(v) < 16:
+            import secrets
+            v = secrets.token_hex(length // 2)
+            public.writeFile(path, v)
+            os.chmod(path, 0o600)
+        return v
 
     # ---------- compile: panel json -> engine files ----------
 
     def _compile(self):
         '''Render config/sites/rules into the engine's formats and bump the
         version. Workers pick it up within ~2s; no nginx reload involved.'''
+        import ipaddress
+        # 755, not 700: the workers (www) read everything in here
         if not os.path.exists(RULE_DIR):
-            os.makedirs(RULE_DIR, 0o700)
+            os.makedirs(RULE_DIR)
+        os.chmod(ENGINE_PATH, 0o755)
+        os.chmod(RULE_DIR, 0o755)
         if not os.path.exists(WAF_LOG_DIR):
             os.makedirs(WAF_LOG_DIR, 0o755)
+        os.system('chown www:www {} 2>/dev/null'.format(WAF_LOG_DIR))
 
         cfg = self._config()
         kv = []
@@ -586,55 +906,66 @@ p{margin:0;color:#5c6470}
                 v = 'true' if v else 'false'
             kv.append('{}={}'.format(k, v))
         kv.append('methods={}'.format(','.join(self._methods())))
-        public.writeFile(RULE_DIR + 'config.txt', '\n'.join(kv))
+        self._w('config.txt', '\n'.join(kv))
 
+        # name<TAB>key=value... — see parse_sites in wafpro.lua
         lines = []
         for name, s in sorted(self._sites().items()):
-            lines.append('|'.join([
-                name,
-                '1' if s.get('open') else '0',
-                '1' if s.get('get') else '0',
-                '1' if s.get('post') else '0',
-                '1' if s.get('cookie') else '0',
-                '1' if s.get('ua') else '0',
-                '1' if s.get('scan') else '0',
-                '1' if s.get('cc_open') else '0',
-                str(int(s.get('cc_limit', 120))),
-                str(int(s.get('cc_cycle', 60))),
-                str(int(s.get('cc_block', 600))),
-                str(s.get('deny_ext', '')).replace('|', ''),
-                str(s.get('upload_ext', '')).replace('|', ''),
-                str(s.get('php_path', '')).replace('|', ''),
-                '1' if s.get('cdn') else '0',
-                '1' if s.get('fake_spider') else '0',
-                '1' if s.get('smart_cc') else '0',
-                '1' if s.get('crawl') else '0',
-                str(int(s.get('crawl_limit', 30))),
-                '1' if s.get('wait') else '0',
-                str(int(s.get('wait_limit', 200))),
-            ]))
-        public.writeFile(RULE_DIR + 'sites.txt', '\n'.join(lines))
+            if not isinstance(s, dict):
+                continue
+            f = [name]
+            for k in self.SITE_BOOL_FIELDS:
+                f.append('{}={}'.format(k, '1' if s.get(k) else '0'))
+            for k in self.SITE_INT_FIELDS:
+                try:
+                    f.append('{}={}'.format(k, int(s.get(k, self.DEFAULT_SITE[k]))))
+                except Exception:
+                    f.append('{}={}'.format(k, self.DEFAULT_SITE[k]))
+            for k in self.SITE_TEXT_FIELDS:
+                f.append('{}={}'.format(k, re.sub(r'[\t\r\n]', '', str(s.get(k, '')))))
+            for k, choices in self.SITE_CHOICE_FIELDS.items():
+                v = s.get(k, self.DEFAULT_SITE[k])
+                f.append('{}={}'.format(k, v if v in choices else self.DEFAULT_SITE[k]))
+            lines.append('\t'.join(f))
+        self._w('sites.txt', '\n'.join(lines))
 
-        self._pack([[self._ip2int(s), self._ip2int(e)] for s, e in self.PRIVATE_RANGES],
-                   RULE_DIR + 'lan.bin')
+        self._w('domains.txt', '\n'.join(
+            '{}|{}'.format(h, site) for h, site in sorted(self._site_domains().items())
+            if '|' not in h and '\n' not in h))
+
+        lan6 = []
+        for n in self.PRIVATE_V6:
+            net = ipaddress.ip_network(n)
+            lan6.append([int(net.network_address), int(net.broadcast_address)])
+        self._pack_set('lan', self._merge([[self._ip2int(a), self._ip2int(b)]
+                                           for a, b in self.PRIVATE_RANGES]), self._merge(lan6))
+        self._pack_set('self', *self._self_ips())
         for name in ('ip_white', 'ip_black'):
-            self._pack(self._ip_ranges(name), RULE_DIR + name + '.bin')
-        for name in ('get', 'post', 'cookie', 'ua', 'scan'):
+            self._pack_set(name, *self._ip_ranges(name))
+        for name in self.RULE_NAMES:
             rules = [r['rule'] for r in self._rule_set(name) if r.get('open')]
-            public.writeFile(RULE_DIR + 'r_' + name + '.txt', '\n'.join(rules))
-        for name in ('url_white', 'url_black', 'sensitive'):
-            public.writeFile(RULE_DIR + name + '.txt',
-                             '\n'.join((x.get('ip') or x.get('rule') or '')
-                                       for x in self._list_load(name)))
-        public.writeFile(RULE_DIR + 'hdr_limits.txt', '\n'.join(
+            self._w('r_' + name + '.txt', '\n'.join(rules))
+        for name in self.URL_LISTS:
+            self._w(name + '.txt', '\n'.join((x.get('ip') or x.get('rule') or '')
+                                             if isinstance(x, dict) else str(x)
+                                             for x in self._list_load(name)))
+        self._w('hdr_limits.txt', '\n'.join(
             '{}|{}'.format(x['h'], int(x['max'])) for x in self._hdr_limits()))
-        sp = self._spiders()
-        self._pack((sp or {}).get('ranges', []), RULE_DIR + 'spider.bin')
-        public.writeFile(RULE_DIR + 'spider_ua.txt', self.SPIDER_UA)
-        public.writeFile(RULE_DIR + 'crawl_ua.txt', self.CRAWL_UA)
-        ml = self._malicious()
-        self._pack((ml or {}).get('ranges', []), RULE_DIR + 'malicious.bin')
-        public.writeFile(RULE_DIR + 'waiting.html', self._waiting_html())
+        sp = self._spiders() or {}
+        self._pack_set('spider', sp.get('ranges', []), sp.get('ranges6', []))
+        self._w('spider_ua.txt', self.SPIDER_UA)
+        self._w('crawl_ua.txt', self.CRAWL_UA)
+        ml = self._malicious() or {}
+        self._pack_set('malicious', ml.get('ranges', []), ml.get('ranges6', []))
+        idc = self._read_json(self.IDC_FILE, None) or {}
+        self._pack_set('idc', idc.get('ranges', []), idc.get('ranges6', []))
+        self._w('waiting.html', self._waiting_html())
+        self._w('block.html', self._page('block'))
+        self._w('challenge.html', self._page('challenge'))
+        self._w('secret.txt', self._secret('secret.key'))
+        self._w('test_token.txt', self._secret('test.key'))
+        self._w('unban.txt', (public.readFile(self.UNBAN_FILE) or '')
+                if os.path.exists(self.UNBAN_FILE) else '')
 
         region = self._rules()
         rl = []
@@ -643,7 +974,7 @@ p{margin:0;color:#5c6470}
             keep.add(r['id'] + '.bin')
             rl.append('|'.join([r['id'], r['site'], r['type'], str(r['status']),
                                 '1' if r.get('open') else '0']))
-        public.writeFile(RULE_DIR + 'region.txt', '\n'.join(rl))
+        self._w('region.txt', '\n'.join(rl))
 
         # traffic limit: id|site|url|dim|rate|action|status|open
         tl = []
@@ -651,13 +982,14 @@ p{margin:0;color:#5c6470}
             tl.append('|'.join([t['id'], t['site'], str(t['url']).replace('|', ''),
                                 t['dim'], str(int(t['rate'])), t['action'],
                                 str(int(t['status'])), '1' if t.get('open') else '0']))
-        public.writeFile(RULE_DIR + 'traffic.txt', '\n'.join(tl))
+        self._w('traffic.txt', '\n'.join(tl))
 
         # custom rules -> multi-line format the engine reads:
         #   R|id|site|action|status|open
         #   C|field|op|extra|value        (extra = param/header name or bin file)
-        # ip/country conditions compile their ranges to a .bin kept alongside
-        # the region bins (added to `keep` so the cleanup below spares them).
+        # ip/country conditions compile their ranges to a .bin (+ .bin6 for ip)
+        # kept alongside the region bins (added to `keep` so the cleanup below
+        # spares them).
         cl = []
         for r in self._custom():
             cl.append('|'.join(['R', r['id'], r['site'], r['action'],
@@ -667,34 +999,58 @@ p{margin:0;color:#5c6470}
                 field, op = c.get('field', ''), c.get('op', '')
                 extra, value = c.get('extra', ''), c.get('value', '')
                 if field in ('ip', 'country'):
-                    ranges = (self._ranges_for(self._split_csv(value))
-                              if field == 'country'
-                              else self._ip_value_ranges(value))
+                    if field == 'country':
+                        v4, v6 = self._ranges_for(self._split_csv(value)) or [], []
+                    else:
+                        v4, v6 = self._ip_value_ranges(value)
                     binname = '{}_{}.bin'.format(r['id'], ci)
-                    self._pack(ranges or [], RULE_DIR + binname)
+                    self._pack(v4, RULE_DIR + binname)
+                    self._pack6(v6, RULE_DIR + binname + '6')
                     keep.add(binname)
+                    keep.add(binname + '6')
                     extra, value = binname, ''
                 cl.append('|'.join(['C', field, op,
                                    self._enc_pipe(extra), self._enc_pipe(value)]))
-        public.writeFile(RULE_DIR + 'custom.txt', '\n'.join(cl))
+        self._w('custom.txt', '\n'.join(cl))
 
-        # Drop .bin files for region rules that no longer exist. Only region
-        # rules have generated names — every other .bin is a fixed one this
-        # method writes, so it must be listed in FIXED_BINS or it gets deleted
-        # the moment it is created.
+        # per-site lists (forbidden URL, anti-leech, protected URL, API, replace)
+        self._w('site_rules.txt', self._site_rules_compiled())
+
+        # Drop packed files of rules that no longer exist. Only region/custom
+        # rules have generated names — every fixed set must be in FIXED_SETS
+        # or it gets deleted the moment it is created.
+        fixed = set(n + '.bin' for n in self.FIXED_SETS) | set(n + '.bin6' for n in self.FIXED_SETS)
         for fn in os.listdir(RULE_DIR):
-            if fn.endswith('.bin') and fn not in keep and fn not in self.FIXED_BINS:
+            if (fn.endswith('.bin') or fn.endswith('.bin6')) and fn not in keep and fn not in fixed:
                 try:
                     os.remove(RULE_DIR + fn)
                 except Exception:
                     pass
 
+        self._purge_old_logs(cfg)
         try:
             ver = int(public.readFile(RULE_DIR + 'version') or 0)
         except Exception:
             ver = 0
-        public.writeFile(RULE_DIR + 'version', str(ver + 1))
+        self._w('version', str(ver + 1))
         return True
+
+    def _purge_old_logs(self, cfg):
+        '''Keep log_save days of block logs.'''
+        try:
+            days = int(cfg.get('log_save', 30))
+        except Exception:
+            days = 30
+        if days <= 0 or not os.path.isdir(WAF_LOG_DIR):
+            return
+        cutoff = time.strftime('%Y-%m-%d', time.localtime(time.time() - days * 86400))
+        for f in os.listdir(WAF_LOG_DIR):
+            d = f[:-4]
+            if f.endswith('.log') and re.match(r'^\d{4}-\d{2}-\d{2}$', d) and d < cutoff:
+                try:
+                    os.remove(WAF_LOG_DIR + f)
+                except Exception:
+                    pass
 
     def _rule_set(self, name):
         data = self._read_json(PLUGIN_PATH + 'rules/' + name + '.json', None)
@@ -710,31 +1066,143 @@ p{margin:0;color:#5c6470}
         self._write_json(d + name + '.json', data)
 
     def _ip_ranges(self, name):
-        out = []
+        '''A stored IP list -> (v4 ranges, v6 ranges), each merged.'''
+        v4, v6 = [], []
         for x in self._read_json(PLUGIN_PATH + name + '.json', []) or []:
+            ip = x['ip'] if isinstance(x, dict) else x
             try:
-                ip = x['ip'] if isinstance(x, dict) else x
-                if '/' in ip:
-                    s, e = self._cidr_range(ip)
-                elif '-' in ip:
-                    a, b = ip.split('-', 1)
-                    s, e = self._ip2int(a.strip()), self._ip2int(b.strip())
-                else:
-                    s = e = self._ip2int(ip)
-                if s is not None and e is not None:
-                    out.append([s, e])
+                fam, s, e = self._any_range(ip)
             except Exception:
                 continue
-        return self._merge(out)
+            (v4 if fam == 4 else v6).append([s, e])
+        return self._merge(v4), self._merge(v6)
+
+    @staticmethod
+    def _any_range(text):
+        '''Single address, CIDR, or "a-b" range, IPv4 or IPv6 ->
+        (family, start int, end int).'''
+        import ipaddress
+        text = str(text).strip()
+        if '/' in text:
+            net = ipaddress.ip_network(text, strict=False)
+            return net.version, int(net.network_address), int(net.broadcast_address)
+        if text.count('-') == 1:          # IPv6 text never contains '-'
+            a, b = [p.strip() for p in text.split('-', 1)]
+            ia = ipaddress.ip_address(a)
+            if ia.version == 4 and '.' not in b:      # short form 1.2.3.4-100
+                b = a.rsplit('.', 1)[0] + '.' + b
+            ib = ipaddress.ip_address(b)
+            if ia.version != ib.version:
+                raise ValueError('Range mixes IPv4 and IPv6')
+            if int(ia) > int(ib):
+                raise ValueError('The starting IP cannot be greater than the ending IP')
+            return ia.version, int(ia), int(ib)
+        ip = ipaddress.ip_address(text)
+        return ip.version, int(ip), int(ip)
+
+    def _pack6(self, ranges, path):
+        '''IPv6 twin of _pack: 32 bytes per [start,end], big-endian.'''
+        buf = b''.join(s.to_bytes(16, 'big') + e.to_bytes(16, 'big') for s, e in ranges)
+        with open(path, 'wb') as f:
+            f.write(buf)
+        os.chmod(path, 0o644)
+        return len(ranges)
+
+    def _pack_set(self, name, v4, v6):
+        self._pack(v4, RULE_DIR + name + '.bin')
+        self._pack6(v6, RULE_DIR + name + '.bin6')
+
+    def _self_ips(self):
+        '''Every address this server answers on, v4 and v6. Exempt from all
+        rules: SSR apps fetch their own public hostname from here.'''
+        import ipaddress
+        found = set()
+        out, _ = public.ExecShell('ip -o addr show 2>/dev/null')
+        for m in re.finditer(r'\sinet6?\s+([0-9a-fA-F:.]+)/', out or ''):
+            found.add(m.group(1))
+        for line in (public.readFile('/www/server/panel/data/iplist.txt') or '').split('\n'):
+            if line.strip():
+                found.add(line.strip())
+        v4, v6 = [], []
+        for ip in found:
+            try:
+                a = ipaddress.ip_address(ip)
+            except ValueError:
+                continue
+            (v4 if a.version == 4 else v6).append([int(a), int(a)])
+        return self._merge(v4), self._merge(v6)
+
+    # loopback, private, link-local and unique-local IPv6
+    PRIVATE_V6 = ('::1/128', 'fc00::/7', 'fe80::/10')
 
     # ----------------------------------------------------------------
     # status / engine
     # ----------------------------------------------------------------
+    ENGINE_FILES = ('wafpro.lua', 'init.lua', 'worker.lua', 'waf.lua', 'header.lua', 'body.lua')
+    # other lua WAFs that hook the same nginx phases; two access_by_lua_file
+    # in one http block is a duplicate directive
+    CONFLICTS = (
+        ('/www/server/panel/vhost/nginx/btwaf.conf', 'aaPanel Nginx WAF (btwaf)'),
+        ('/www/server/panel/vhost/nginx/free_waf.conf', 'Nginx free firewall (free_waf)'),
+    )
+
+    def _engine_files_current(self):
+        '''True when /www/server/wafpro runs the lua shipped with this plugin.'''
+        for f in self.ENGINE_FILES:
+            a = public.readFile(PLUGIN_PATH + 'engine/' + f)
+            b = public.readFile(ENGINE_PATH + f)
+            if a and a != b:
+                return False
+        return True
+
+    def _engine_sync(self):
+        '''Copy the plugin's lua into place. The engine is cached at nginx
+        start, so a changed copy only runs after the next reload.'''
+        if not os.path.exists(ENGINE_PATH):
+            os.makedirs(ENGINE_PATH)
+        os.chmod(ENGINE_PATH, 0o755)
+        for f in self.ENGINE_FILES:
+            src = PLUGIN_PATH + 'engine/' + f
+            if os.path.exists(src):
+                public.writeFile(ENGINE_PATH + f, public.readFile(src))
+                os.chmod(ENGINE_PATH + f, 0o644)
+
+    def _conflicts(self):
+        out = [label for path, label in self.CONFLICTS if os.path.exists(path)]
+        conf = public.readFile(self.NGINX_CONF) or ''
+        if re.search(r'^\s*include\s+luawaf\.conf\s*;', conf, re.M):
+            out.append('nginx.conf includes luawaf.conf (old panel WAF)')
+        return out
+
+    def _nginx_has_lua(self):
+        out, err = public.ExecShell('/www/server/nginx/sbin/nginx -V 2>&1')
+        return 'lua_nginx_module' in ((out or '') + (err or '')) or 'openresty' in ((out or '') + (err or ''))
+
+    def _engine_health(self):
+        '''What the workers report running vs what the panel last compiled.'''
+        try:
+            want = int(public.readFile(RULE_DIR + 'version') or 0)
+        except Exception:
+            want = 0
+        st = (public.readFile(WAF_LOG_DIR + 'engine.status') or '').strip().split('|')
+        running, beat, ver = None, 0, ''
+        if len(st) >= 2 and st[0].lstrip('-').isdigit():
+            running, beat = int(st[0]), int(st[1]) if st[1].isdigit() else 0
+            ver = st[2] if len(st) > 2 else ''
+        age = int(time.time()) - beat if beat else None
+        return {'rule_version': want, 'running_version': running,
+                'engine_version': ver, 'heartbeat_age': age,
+                # workers heartbeat every 30s; give them a little slack
+                'alive': age is not None and age < 120,
+                'in_sync': running == want}
+
     def _engine_state(self):
-        '''Our own engine: shipped with the plugin, wired by install.sh.'''
+        '''Our own engine: shipped with the plugin, wired by the Global tab.'''
         return {
             'installed': os.path.exists(ENGINE_PATH + 'wafpro.lua'),
             'wired': os.path.exists(self.WAFPRO_CONF),
+            'current': self._engine_files_current(),
+            'conflicts': self._conflicts(),
         }
 
     def get_status(self, get):
@@ -744,6 +1212,8 @@ p{margin:0;color:#5c6470}
             'status': True,
             'engine_installed': e['installed'],
             'nginx_wired': e['wired'],
+            'engine': e,
+            'health': self._engine_health() if e['wired'] else None,
             'open': bool(cfg.get('open', False)),
             'sites': len(self._sites()),
             'start_time': cfg.get('start_time', 0),
@@ -765,14 +1235,22 @@ p{margin:0;color:#5c6470}
             if on:
                 if not os.path.exists(src):
                     return public.returnMsg(False, 'engine/wafpro.conf missing from the plugin')
+                conflicts = self._conflicts()
+                if conflicts:
+                    return public.returnMsg(False, 'Another WAF is hooked into nginx: {}. '
+                                                   'Only one lua WAF can run; uninstall it first.'
+                                            .format('; '.join(conflicts)))
+                if not self._nginx_has_lua():
+                    return public.returnMsg(False, 'This nginx was built without lua_nginx_module. '
+                                                   'Reinstall nginx from the App Store (it includes lua).')
+                self._engine_sync()
                 self._compile()
                 public.writeFile(self.WAFPRO_CONF, public.readFile(src))
             else:
                 if os.path.exists(self.WAFPRO_CONF):
                     os.remove(self.WAFPRO_CONF)
-            ok = public.ExecShell('/www/server/nginx/sbin/nginx -t 2>&1')
-            out = (ok[0] or '') + (ok[1] or '')
-            if 'test is successful' not in out:
+            ok, out = self._nginx_test()
+            if not ok:
                 # put it back exactly as it was before touching nginx
                 if backup:
                     public.writeFile(self.WAFPRO_CONF, backup)
@@ -787,6 +1265,31 @@ p{margin:0;color:#5c6470}
             if backup:
                 public.writeFile(self.WAFPRO_CONF, backup)
             return public.returnMsg(False, 'Wiring failed: {}'.format(e))
+
+    def engine_update(self, get):
+        '''After a plugin update: put the new lua in place and reload nginx
+        (the engine is cached at nginx start, so copying alone is not enough).'''
+        if not os.path.exists(self.WAFPRO_CONF):
+            self._engine_sync()
+            return public.returnMsg(True, 'Engine files updated (not wired, nothing to reload)')
+        backup = {f: public.readFile(ENGINE_PATH + f) for f in self.ENGINE_FILES}
+        self._engine_sync()
+        self._compile()
+        conf_src = public.readFile(PLUGIN_PATH + 'engine/wafpro.conf')
+        conf_old = public.readFile(self.WAFPRO_CONF)
+        if conf_src:
+            public.writeFile(self.WAFPRO_CONF, conf_src)
+        ok, out = self._nginx_test()
+        if not ok:
+            for f, body in backup.items():
+                if body:
+                    public.writeFile(ENGINE_PATH + f, body)
+            if conf_old:
+                public.writeFile(self.WAFPRO_CONF, conf_old)
+            return public.returnMsg(False, 'nginx test failed, kept the old engine: {}'.format(
+                out.strip().split('\n')[-1][:200]))
+        public.serviceReload()
+        return public.returnMsg(True, 'Engine updated and nginx reloaded')
 
     def set_switch(self, get):
         cfg = self._config()
@@ -803,7 +1306,13 @@ p{margin:0;color:#5c6470}
     # ----------------------------------------------------------------
     def overview(self, get):
         try:
-            data = self._dash().overview()
+            day = (getattr(get, 'date', '') or '').strip()
+            if day and not re.match(r'^\d{4}-\d{2}-\d{2}$', day):
+                day = ''
+            if day == time.strftime('%Y-%m-%d'):
+                day = ''
+            data = self._dash().overview(day or None)
+            data['day'] = day or time.strftime('%Y-%m-%d')
             data['engine_installed'] = True
             data['engine'] = self._engine_state()
             return data
@@ -852,6 +1361,12 @@ p{margin:0;color:#5c6470}
         'region': 'Region rule', 'sensitive': 'Sensitive word',
         'traffic': 'Traffic limit', 'traffic-block': 'Traffic limit (block)',
         'custom': 'Custom rule',
+        'ua-black': 'UA blacklist', 'url-keyword': 'URL keyword',
+        'http-package': 'Oversized request body', 'deny-path': 'Forbidden URL',
+        'hotlink': 'Anti-leech', 'protected-url': 'Protected URL', 'api': 'API defense',
+        'php2shell': 'PHP2Shell guard', 'form-data': 'Malformed form-data',
+        'challenge': 'Browser verification', 'nday': 'Known exploit (N-day)',
+        'idc': 'Datacenter (IDC) IP',
     }
 
     def _log_files(self, site, date):
@@ -1262,6 +1777,7 @@ p{margin:0;color:#5c6470}
         cfg = dict(self._config())
         cfg['status'] = True
         cfg['engine'] = self._engine_state()
+        cfg['health'] = self._engine_health() if cfg['engine']['wired'] else None
         return cfg
 
     def save_config(self, get):
@@ -1289,14 +1805,15 @@ p{margin:0;color:#5c6470}
 
     # what a config bundle carries — everything a user tunes, nothing runtime
     EXPORT_PARTS = ('config', 'sites', 'region_rules', 'traffic_rules',
-                    'custom_rules', 'methods', 'hdr_limits',
-                    'ip_white', 'ip_black', 'url_white', 'url_black', 'sensitive')
+                    'custom_rules', 'methods', 'hdr_limits', 'site_rules',
+                    'ip_white', 'ip_black', 'url_white', 'url_black', 'sensitive',
+                    'url_keyword', 'ua_white', 'ua_black')
 
     def _part_path(self, part):
         m = {'config': self.CONFIG, 'sites': self.SITES,
              'region_rules': self.RULES_JSON, 'traffic_rules': self.TRAFFIC_JSON,
              'custom_rules': self.CUSTOM_JSON, 'methods': self.METHODS_FILE,
-             'hdr_limits': self.HDR_FILE}
+             'hdr_limits': self.HDR_FILE, 'site_rules': self.SITE_RULES_JSON}
         return m.get(part) or self._list_path(part)
 
     def export_config(self, get):
@@ -1345,25 +1862,66 @@ p{margin:0;color:#5c6470}
     # ----------------------------------------------------------------
     NGINX_CONF = '/www/server/nginx/conf/nginx.conf'
     VHOST_DIR = '/www/server/panel/vhost/nginx/'
-    RT_FORMAT = ("    log_format wafpro '$remote_addr - $remote_user [$time_local] \"$request\" '\n"
-                 "                      '$status $body_bytes_sent \"$http_referer\" \"$http_user_agent\" '\n"
-                 "                      'rt=$request_time urt=$upstream_response_time';\n")
+    # Our log_format lives in its own vhost include, NOT in nginx.conf: an
+    # nginx upgrade from the panel regenerates nginx.conf, which dropped the
+    # format while the site confs still used it -> nginx refused to start with
+    # 'unknown log format "wafpro"' (issue #3). The "0." prefix sorts it before
+    # every site conf, which is required: access_log looks the format up at
+    # parse time.
+    RT_FORMAT_FILE = '/www/server/panel/vhost/nginx/0.wafpro_log_format.conf'
+    RT_FORMAT = ("log_format wafpro '$remote_addr - $remote_user [$time_local] \"$request\" '\n"
+                 "                  '$status $body_bytes_sent \"$http_referer\" \"$http_user_agent\" '\n"
+                 "                  'rt=$request_time urt=$upstream_response_time';\n")
+    RT_USE_RE = re.compile(r'access_log\s+\S+\s+wafpro\s*;')
+
+    def _rt_skip(self, f):
+        return (not f.endswith('.conf') or f.startswith('0.') or
+                f in ('wafpro.conf', 'phpfpm_status.conf'))
+
+    def _rt_strip_main_conf(self):
+        '''Remove the format a pre-2.1 version inserted into nginx.conf (a
+        second definition next to our include would be a duplicate).'''
+        conf = public.readFile(self.NGINX_CONF) or ''
+        new = re.sub(r"\n?[ \t]*log_format wafpro '[^;]*;\n?", '\n', conf)
+        if new != conf:
+            public.writeFile(self.NGINX_CONF, new)
+            return conf
+        return None
+
+    def _rt_heal(self):
+        '''Self-repair for issue #3: site confs reference the wafpro format
+        but its definition is gone. Recreate it in our own include.'''
+        try:
+            if os.path.exists(self.RT_FORMAT_FILE):
+                return False
+            if 'log_format wafpro' in (public.readFile(self.NGINX_CONF) or ''):
+                return False
+            for f in os.listdir(self.VHOST_DIR):
+                if self._rt_skip(f):
+                    continue
+                if self.RT_USE_RE.search(public.readFile(self.VHOST_DIR + f) or ''):
+                    public.writeFile(self.RT_FORMAT_FILE, self.RT_FORMAT)
+                    return True
+        except Exception:
+            pass
+        return False
 
     def rt_status(self, get):
         '''Is origin-response tracking wired into nginx?'''
-        body = public.readFile(self.NGINX_CONF) or ''
-        has_fmt = 'log_format wafpro' in body
+        self._rt_heal()
+        has_fmt = os.path.exists(self.RT_FORMAT_FILE) or \
+            'log_format wafpro' in (public.readFile(self.NGINX_CONF) or '')
         sites, applied = [], []
         try:
             for f in os.listdir(self.VHOST_DIR):
-                if not f.endswith('.conf') or f.startswith('0.') or f in ('wafpro.conf', 'phpfpm_status.conf'):
+                if self._rt_skip(f):
                     continue
                 c = public.readFile(self.VHOST_DIR + f) or ''
                 if 'access_log' not in c:
                     continue
                 name = f[:-5]
                 sites.append(name)
-                if re.search(r'access_log\s+\S+\s+wafpro\s*;', c):
+                if self.RT_USE_RE.search(c):
                     applied.append(name)
         except Exception:
             pass
@@ -1371,49 +1929,49 @@ p{margin:0;color:#5c6470}
                 'sites': sites, 'applied': applied,
                 'enabled': bool(has_fmt and applied)}
 
+    def _nginx_test(self):
+        out, err = public.ExecShell('/www/server/nginx/sbin/nginx -t 2>&1')
+        res = (out or '') + (err or '')
+        return 'successful' in res, res
+
     def enable_rt(self, get):
         '''Add a log_format carrying $upstream_response_time and point the site
         access_log lines at it. Everything is backed up first and nginx is
         syntax-checked before reload; on failure we roll back.'''
         backups = {}
+        created = False
         try:
-            conf = public.readFile(self.NGINX_CONF)
-            if not conf:
-                return public.returnMsg(False, 'Cannot read nginx.conf')
-            backups[self.NGINX_CONF] = conf
-
-            if 'log_format wafpro' not in conf:
-                # insert right after the http { block opens
-                m = re.search(r'^\s*http\s*\{\s*$', conf, re.M)
-                if not m:
-                    return public.returnMsg(False, 'Could not locate the http block in nginx.conf')
-                pos = m.end()
-                conf = conf[:pos] + '\n' + self.RT_FORMAT + conf[pos:]
-                public.writeFile(self.NGINX_CONF, conf)
+            old_main = self._rt_strip_main_conf()
+            if old_main is not None:
+                backups[self.NGINX_CONF] = old_main
+            if not os.path.exists(self.RT_FORMAT_FILE):
+                public.writeFile(self.RT_FORMAT_FILE, self.RT_FORMAT)
+                created = True
 
             changed = []
             for f in os.listdir(self.VHOST_DIR):
-                if not f.endswith('.conf') or f.startswith('0.') or f in ('wafpro.conf', 'phpfpm_status.conf'):
+                if self._rt_skip(f):
                     continue
                 path = self.VHOST_DIR + f
                 c = public.readFile(path) or ''
-                if 'access_log' not in c or re.search(r'access_log\s+\S+\s+wafpro\s*;', c):
+                if 'access_log' not in c or self.RT_USE_RE.search(c):
                     continue
-                backups[path] = c
-                # only touch real file logs, never "access_log off;"
+                # only touch real file logs, never "access_log off;" or syslog
                 new_c = re.sub(r'access_log\s+(/\S+\.log)\s*;', r'access_log  \1 wafpro;', c)
                 if new_c != c:
+                    backups[path] = c
                     public.writeFile(path, new_c)
                     changed.append(f)
 
-            out, err = public.ExecShell('/www/server/nginx/sbin/nginx -t 2>&1')
-            result = (out or '') + (err or '')
-            if 'successful' not in result:
+            ok, result = self._nginx_test()
+            if not ok:
                 for p, b in backups.items():
                     public.writeFile(p, b)
+                if created and os.path.exists(self.RT_FORMAT_FILE):
+                    os.remove(self.RT_FORMAT_FILE)
                 return public.returnMsg(False, 'nginx test failed, changes reverted: {}'.format(result.strip()[:250]))
 
-            public.ExecShell('/etc/init.d/nginx reload 2>&1')
+            public.serviceReload()
             public.WriteLog('WAF Pro', 'Origin-response tracking enabled ({} sites)'.format(len(changed)))
             return public.returnMsg(True, 'Origin response tracking enabled for {} site(s). '
                                           'Data appears as new requests come in.'.format(len(changed)))
@@ -1426,7 +1984,9 @@ p{margin:0;color:#5c6470}
             return public.returnMsg(False, 'Failed: {}'.format(e))
 
     def disable_rt(self, get):
-        '''Revert the access_log lines back to the default format.'''
+        '''Revert the access_log lines to the default format, then drop the
+        format definition (sites first: a format still in use cannot go).'''
+        backups = {}
         try:
             changed = 0
             for f in os.listdir(self.VHOST_DIR):
@@ -1436,9 +1996,23 @@ p{margin:0;color:#5c6470}
                 c = public.readFile(path) or ''
                 new_c = re.sub(r'(access_log\s+/\S+\.log)\s+wafpro\s*;', r'\1;', c)
                 if new_c != c:
+                    backups[path] = c
                     public.writeFile(path, new_c)
                     changed += 1
-            public.ExecShell('/etc/init.d/nginx reload 2>&1')
+            fmt = public.readFile(self.RT_FORMAT_FILE) if os.path.exists(self.RT_FORMAT_FILE) else None
+            if fmt is not None:
+                os.remove(self.RT_FORMAT_FILE)
+            old_main = self._rt_strip_main_conf()
+            if old_main is not None:
+                backups[self.NGINX_CONF] = old_main
+            ok, result = self._nginx_test()
+            if not ok:
+                for p, b in backups.items():
+                    public.writeFile(p, b)
+                if fmt is not None:
+                    public.writeFile(self.RT_FORMAT_FILE, fmt)
+                return public.returnMsg(False, 'nginx test failed, changes reverted: {}'.format(result.strip()[:250]))
+            public.serviceReload()
             return public.returnMsg(True, 'Origin response tracking disabled ({} sites)'.format(changed))
         except Exception as e:
             return public.returnMsg(False, 'Failed: {}'.format(e))
@@ -1459,8 +2033,10 @@ p{margin:0;color:#5c6470}
     # (ip_*.bin) or regex lines (url_white.txt) by _compile().
     # ----------------------------------------------------------------
     IP_LISTS = ('ip_white', 'ip_black')
-    URL_LISTS = ('url_white', 'url_black', 'sensitive')
-    RULE_NAMES = ('get', 'post', 'cookie', 'ua', 'scan')
+    # regex lists. ua_* match the User-Agent, url_keyword the decoded request
+    # line, sensitive the request line + urlencoded body
+    URL_LISTS = ('url_white', 'url_black', 'sensitive', 'url_keyword', 'ua_white', 'ua_black')
+    RULE_NAMES = ('get', 'post', 'cookie', 'ua', 'scan', 'nday')
     REMARKS_FILE = PLUGIN_PATH + 'remarks.json'
 
     def _ip_to_str(self, octets):
@@ -1499,6 +2075,9 @@ p{margin:0;color:#5c6470}
         self._write_json(self._list_path(name), data)
         self._compile()
 
+    LIST_TYPES = {'url_white': 'URL', 'url_black': 'URL', 'sensitive': 'Word',
+                  'url_keyword': 'Word', 'ua_white': 'User-Agent', 'ua_black': 'User-Agent'}
+
     def list_get(self, get):
         name = getattr(get, 'list_name', '')
         if name not in self.IP_LISTS + self.URL_LISTS:
@@ -1506,11 +2085,16 @@ p{margin:0;color:#5c6470}
         items = []
         for i, v in enumerate(self._list_load(name)):
             ip = v.get('ip') if isinstance(v, dict) else v
+            if name in self.IP_LISTS:
+                typ = 'IPv6' if ':' in str(ip) else 'IPv4'
+            else:
+                typ = self.LIST_TYPES.get(name, 'URL')
             items.append({
                 'index': i,
                 'value': ip,
                 'remark': (v.get('ps') if isinstance(v, dict) else '') or self._remark_get(name, ip),
-                'type': 'IPv4' if name in self.IP_LISTS else ('Word' if name == 'sensitive' else 'URL'),
+                'type': typ,
+                'time': v.get('time', 0) if isinstance(v, dict) else 0,
             })
         return {'status': True, 'data': items}
 
@@ -1526,10 +2110,9 @@ p{margin:0;color:#5c6470}
             start = getattr(get, 'start_ip', '') or getattr(get, 'value', '')
             end = getattr(get, 'end_ip', '')
             try:
-                s, e = self._parse_ip_input(start, end)
+                val = self._parse_ip_input(start, end)
             except ValueError as ve:
                 return public.returnMsg(False, str(ve))
-            val = s if s == e else '{}-{}'.format(s, e)
         else:
             val = (getattr(get, 'value', '') or '').strip()
             if not val:
@@ -1569,11 +2152,18 @@ p{margin:0;color:#5c6470}
         return public.returnMsg(True, 'List cleared')
 
     def list_export(self, get):
+        '''Write the list to a one-value-per-line file the UI then downloads
+        (the UI expects rows + filename; returning only the data left the
+        Export button reporting "undefined rows exported").'''
         name = getattr(get, 'list_name', '')
         if name not in self.IP_LISTS + self.URL_LISTS:
             return {'status': False, 'msg': 'Unknown list'}
-        return {'status': True, 'data': [x.get('ip') if isinstance(x, dict) else x
-                                         for x in self._list_load(name)]}
+        vals = [x.get('ip') if isinstance(x, dict) else x for x in self._list_load(name)]
+        if not os.path.exists(PLUGIN_PATH + 'export'):
+            os.makedirs(PLUGIN_PATH + 'export', 0o700)
+        fname = 'wafpro_{}_{}.csv'.format(name, time.strftime('%Y%m%d_%H%M%S'))
+        public.writeFile(PLUGIN_PATH + 'export/' + fname, '\n'.join(str(v) for v in vals) + '\n')
+        return {'status': True, 'rows': len(vals), 'filename': fname, 'data': vals}
 
     def list_import(self, get):
         name = getattr(get, 'list_name', '')
@@ -1589,8 +2179,7 @@ p{margin:0;color:#5c6470}
                 continue
             if name in self.IP_LISTS:
                 try:
-                    s, e = self._parse_ip_input(v, '')
-                    v = s if s == e else '{}-{}'.format(s, e)
+                    v = self._parse_ip_input(v, '')
                 except ValueError:
                     bad += 1
                     continue
@@ -1613,7 +2202,7 @@ p{margin:0;color:#5c6470}
     # rule sets (regex) — Custom rules tab
     # ----------------------------------------------------------------
     def rule_get(self, get):
-        name = getattr(get, 'rule_name', '') or getattr(get, 'name', '')
+        name = getattr(get, 'rule_name', '')
         if name not in self.RULE_NAMES:
             return {'status': False, 'msg': 'Unknown rule set'}
         data = self._rule_set(name)
@@ -1623,7 +2212,7 @@ p{margin:0;color:#5c6470}
             for i, x in enumerate(data)]}
 
     def rule_add(self, get):
-        name = getattr(get, 'rule_name', '') or getattr(get, 'name', '')
+        name = getattr(get, 'rule_name', '')
         if name not in self.RULE_NAMES:
             return public.returnMsg(False, 'Unknown rule set')
         rule = (getattr(get, 'rule', '') or '').strip()
@@ -1643,7 +2232,7 @@ p{margin:0;color:#5c6470}
         return public.returnMsg(True, 'Rule added')
 
     def rule_del(self, get):
-        name = getattr(get, 'rule_name', '') or getattr(get, 'name', '')
+        name = getattr(get, 'rule_name', '')
         if name not in self.RULE_NAMES:
             return public.returnMsg(False, 'Unknown rule set')
         try:
@@ -1659,7 +2248,7 @@ p{margin:0;color:#5c6470}
         return public.returnMsg(True, 'Rule removed')
 
     def rule_toggle(self, get):
-        name = getattr(get, 'rule_name', '') or getattr(get, 'name', '')
+        name = getattr(get, 'rule_name', '')
         if name not in self.RULE_NAMES:
             return public.returnMsg(False, 'Unknown rule set')
         try:
@@ -1694,44 +2283,29 @@ p{margin:0;color:#5c6470}
         return '.'.join(str((n >> s) & 0xFF) for s in (24, 16, 8, 0))
 
     def _parse_ip_input(self, start, end=''):
-        '''Accept the shapes the UI advertises and return (start_ip, end_ip):
-             1.2.3.4                -> 1.2.3.4 , 1.2.3.4
-             1.2.3.4 + 1.2.3.9      -> range
-             1.2.3.4-1.2.3.9        -> range
-             192.168.100.6-100      -> 192.168.100.6 , 192.168.100.100
-             192.168.1.0/24         -> 192.168.1.1 , 192.168.1.254
-        '''
+        '''Normalise what the UI accepts into one stored value:
+             1.2.3.4  /  2001:db8::1          single address
+             1.2.3.4 + end 1.2.3.9            range (also "a-b")
+             192.168.100.6-100                short IPv4 range
+             192.168.1.0/24  /  2001:db8::/32 CIDR, kept as CIDR
+        Raises ValueError with a message the UI can show.'''
+        import ipaddress
         start = (start or '').strip()
         end = (end or '').strip()
         if not start:
             raise ValueError('Start IP is empty')
-
-        if '/' in start:                       # CIDR
-            ip, bits = start.split('/', 1)
-            bits = int(bits)
-            if bits < 0 or bits > 32:
-                raise ValueError('Invalid CIDR prefix')
-            base = self._ip2int(ip)
-            mask = (0xFFFFFFFF << (32 - bits)) & 0xFFFFFFFF
-            net, bcast = base & mask, (base & mask) | (~mask & 0xFFFFFFFF)
-            if bits >= 31:                     # /31 and /32 have no host range
-                return self._int2ip(net), self._int2ip(bcast)
-            return self._int2ip(net + 1), self._int2ip(bcast - 1)
-
-        if not end and '-' in start:           # "a-b" or short "1.2.3.4-100"
-            a, b = start.split('-', 1)
-            a, b = a.strip(), b.strip()
-            if '.' not in b:
-                b = a.rsplit('.', 1)[0] + '.' + b
-            start, end = a, b
-
-        if not end:
-            end = start
-
-        s, e = self._ip2int(start), self._ip2int(end)   # validates both
-        if s > e:
-            raise ValueError('The starting IP cannot be greater than the ending IP')
-        return self._int2ip(s), self._int2ip(e)
+        text = '{}-{}'.format(start, end) if end else start
+        try:
+            fam, s, e = self._any_range(text)
+        except ValueError as ex:
+            msg = str(ex)
+            if 'does not appear' in msg or 'not a valid' in msg:
+                msg = 'Not a valid IPv4/IPv6 address: {}'.format(text)
+            raise ValueError(msg)
+        if '/' in text:
+            return str(ipaddress.ip_network(text, strict=False))
+        a, b = ipaddress.ip_address(s), ipaddress.ip_address(e)
+        return str(a) if s == e else '{}-{}'.format(a, b)
 
     # ----------------------------------------------------------------
     # Region restriction — standalone
@@ -1849,11 +2423,11 @@ p{margin:0;color:#5c6470}
         return self._merge(out)
 
     def _pack(self, ranges, path):
-        import struct
         buf = b''.join(struct.pack('>II', s, e) for s, e in ranges)
-        f = open(path, 'wb')
-        f.write(buf)
-        f.close()
+        with open(path, 'wb') as f:
+            f.write(buf)
+        # nginx workers run as www: they must be able to read every rule file
+        os.chmod(path, 0o644)
         return len(ranges)
 
     def _rules(self):
@@ -1988,7 +2562,7 @@ p{margin:0;color:#5c6470}
                 'engine': self.region_engine_state()}
 
     def _traffic_validate(self, get):
-        name = (getattr(get, 'name', '') or '').strip()
+        name = (self._arg(get, 'name') or '').strip()
         if not name:
             return None, 'Rule name is required'
         site = (getattr(get, 'site', '') or '').strip()
@@ -2010,7 +2584,7 @@ p{margin:0;color:#5c6470}
             rate = 0
         if rate < 1:
             return None, 'Rate must be at least 1 per second'
-        action = getattr(get, 'action', 'status')
+        action = self._arg(get, 'action', 'status')
         if action not in self.TRAFFIC_ACTIONS:
             return None, 'Bad action'
         try:
@@ -2098,31 +2672,25 @@ p{margin:0;color:#5c6470}
         return [x.strip() for x in str(v).split(',') if x.strip()]
 
     def _ip_value_ranges(self, v):
-        '''An ip condition value: CIDR, a-b range, or a single address —
-        possibly several, comma separated. Returns merged [start,end] pairs.'''
-        out = []
+        '''An ip condition value: CIDR, a-b range, or a single address (v4 or
+        v6) — possibly several, comma separated. Returns (v4, v6) merged.'''
+        v4, v6 = [], []
         for part in self._split_csv(v):
             try:
-                if '/' in part:
-                    out.append(list(self._cidr_range(part)))
-                elif '-' in part:
-                    a, b = part.split('-', 1)
-                    out.append([self._ip2int(a.strip()), self._ip2int(b.strip())])
-                else:
-                    n = self._ip2int(part)
-                    out.append([n, n])
+                fam, s, e = self._any_range(part)
             except Exception:
                 continue
-        return self._merge(out)
+            (v4 if fam == 4 else v6).append([s, e])
+        return self._merge(v4), self._merge(v6)
 
     def _custom_validate(self, get):
-        name = (getattr(get, 'name', '') or '').strip()
+        name = (self._arg(get, 'name') or '').strip()
         if not name:
             return None, 'Rule name is required'
         site = (getattr(get, 'site', '') or '').strip()
         if not site:
             return None, 'Select a website'
-        action = getattr(get, 'action', 'block')
+        action = self._arg(get, 'action', 'block')
         if action not in self.CUSTOM_ACTIONS:
             return None, 'Bad action'
         try:
@@ -2276,32 +2844,33 @@ p{margin:0;color:#5c6470}
     def get_sites(self, get):
         sites = self._sites()
         hits = self._site_hits()
+        types = self._panel_site_types()
+        domains = {}
+        for h, site in self._site_domains().items():
+            domains.setdefault(site, []).append(h)
+        rules = self._site_rules()
         out = []
         for name, c in sorted(sites.items()):
-            out.append({
-                'name': name,
-                'open': bool(c.get('open', True)),
-                'get': bool(c.get('get', True)),
-                'post': bool(c.get('post', True)),
-                'cookie': bool(c.get('cookie', True)),
-                'ua': bool(c.get('ua', True)),
-                'scan': bool(c.get('scan', True)),
-                'cc_open': bool(c.get('cc_open', True)),
-                'cc_limit': int(c.get('cc_limit', 120)),
-                'cc_cycle': int(c.get('cc_cycle', 60)),
-                'cc_block': int(c.get('cc_block', 600)),
-                'deny_ext': c.get('deny_ext', ''),
-                'upload_ext': c.get('upload_ext', ''),
-                'php_path': c.get('php_path', ''),
-                'cdn': bool(c.get('cdn', False)),
-                'fake_spider': bool(c.get('fake_spider', True)),
-                'smart_cc': bool(c.get('smart_cc', False)),
-                'crawl': bool(c.get('crawl', False)),
-                'crawl_limit': int(c.get('crawl_limit', 30)),
-                'wait': bool(c.get('wait', False)),
-                'wait_limit': int(c.get('wait_limit', 200)),
-                'intercepts': hits.get(name, 0),
-            })
+            if not isinstance(c, dict):
+                continue
+            row = {'name': name, 'intercepts': hits.get(name, 0),
+                   'project_type': types.get(name, ''),
+                   'in_panel': name in types,
+                   'domains': sorted(domains.get(name, [])),
+                   'rule_counts': {k: len(rules.get(name, {}).get(k, []))
+                                   for k in self.SITE_RULE_KINDS}}
+            for k in self.SITE_BOOL_FIELDS:
+                row[k] = bool(c.get(k, self.DEFAULT_SITE[k]))
+            for k in self.SITE_INT_FIELDS:
+                try:
+                    row[k] = int(c.get(k, self.DEFAULT_SITE[k]))
+                except Exception:
+                    row[k] = self.DEFAULT_SITE[k]
+            for k in self.SITE_TEXT_FIELDS:
+                row[k] = c.get(k, '')
+            for k in self.SITE_CHOICE_FIELDS:
+                row[k] = c.get(k, self.DEFAULT_SITE[k])
+            out.append(row)
         return {'status': True, 'data': out, 'mal_open': bool(self._config().get('mal_open'))}
 
     def _site_hits(self):
@@ -2339,7 +2908,12 @@ p{margin:0;color:#5c6470}
             except Exception:
                 return public.returnMsg(False, 'Value must be a number')
         elif field in self.SITE_TEXT_FIELDS:
-            data[name][field] = str(getattr(get, 'value', '')).replace('|', '')
+            data[name][field] = re.sub(r'[|\t\r\n]', '', str(getattr(get, 'value', '')))
+        elif field in self.SITE_CHOICE_FIELDS:
+            v = str(getattr(get, 'value', ''))
+            if v not in self.SITE_CHOICE_FIELDS[field]:
+                return public.returnMsg(False, 'Invalid value')
+            data[name][field] = v
         else:
             return public.returnMsg(False, 'Field not allowed: {}'.format(field))
         self._write_json(self.SITES, data)
@@ -2382,9 +2956,458 @@ p{margin:0;color:#5c6470}
                     pass
         for k in self.SITE_TEXT_FIELDS:
             if k in patch:
-                # '|' is our sites.txt field separator; never let it through
-                data[name][k] = str(patch[k]).replace('|', '')
+                # tab separates sites.txt fields; never let one through
+                data[name][k] = re.sub(r'[|\t\r\n]', '', str(patch[k]))
+        for k, choices in self.SITE_CHOICE_FIELDS.items():
+            if k in patch and patch[k] in choices:
+                data[name][k] = patch[k]
         self._write_json(self.SITES, data)
         self._compile()
         public.WriteLog('WAF Pro', 'site {} settings saved'.format(name))
         return public.returnMsg(True, 'Site settings saved')
+
+    # ----------------------------------------------------------------
+    # Per-site rule lists — Website tab > site settings.
+    #   dpath  forbidden URL        {rule}
+    #   leech  anti-hotlink         {exts, domains, allow_empty}
+    #   purl   protected URL        {path, param, value}
+    #   api    API defense          {path, methods, per_min}
+    #   repl   content replace      {from, to}
+    # Stored as {site: {kind: [entry, ...]}}; compiled to rule/site_rules.txt.
+    # ----------------------------------------------------------------
+    SITE_RULES_JSON = PLUGIN_PATH + 'site_rules.json'
+    SITE_RULE_KINDS = ('dpath', 'leech', 'purl', 'api', 'repl')
+    API_METHODS = ('GET', 'POST', 'PUT', 'PATCH', 'DELETE', 'HEAD', 'OPTIONS')
+
+    def _site_rules(self):
+        d = self._read_json(self.SITE_RULES_JSON, {})
+        return d if isinstance(d, dict) else {}
+
+    def _site_rule_clean(self, kind, raw):
+        '''Validate one entry from the UI -> (entry, error).'''
+        def regex(v, label):
+            v = str(v or '').strip()
+            if not v:
+                return None, '{} is required'.format(label)
+            try:
+                re.compile(v)
+            except re.error as ex:
+                return None, 'Invalid regular expression: {}'.format(ex)
+            return v, None
+
+        if kind == 'dpath':
+            v, err = regex(raw.get('rule'), 'URL pattern')
+            return ({'rule': v}, None) if not err else (None, err)
+        if kind == 'leech':
+            exts = ','.join(x.strip().lstrip('.').lower() for x in str(raw.get('exts', '')).split(',')
+                            if x.strip())
+            if not exts or not re.match(r'^[a-z0-9,]+$', exts):
+                return None, 'Extensions: comma separated, e.g. jpg,png,mp4'
+            domains = ','.join(x.strip().lower() for x in str(raw.get('domains', '')).split(',')
+                               if x.strip())
+            if domains and not re.match(r'^[a-z0-9.*,-]+$', domains):
+                return None, 'Allowed domains: comma separated host names'
+            return {'exts': exts, 'domains': domains,
+                    'allow_empty': bool(raw.get('allow_empty', True))}, None
+        if kind == 'purl':
+            v, err = regex(raw.get('path'), 'URL pattern')
+            if err:
+                return None, err
+            param = str(raw.get('param', '')).strip()
+            value = str(raw.get('value', '')).strip()
+            if not re.match(r'^[A-Za-z0-9_.-]{1,64}$', param):
+                return None, 'Parameter name: letters, digits, _ . -'
+            if len(value) < 6:
+                return None, 'Use a parameter value of at least 6 characters'
+            return {'path': v, 'param': param, 'value': value}, None
+        if kind == 'api':
+            v, err = regex(raw.get('path'), 'API path pattern')
+            if err:
+                return None, err
+            methods = [m.strip().upper() for m in str(raw.get('methods', '')).split(',') if m.strip()]
+            if any(m not in self.API_METHODS for m in methods):
+                return None, 'Methods: any of ' + ', '.join(self.API_METHODS)
+            try:
+                per_min = max(int(raw.get('per_min', 0)), 0)
+            except Exception:
+                per_min = 0
+            if not methods and not per_min:
+                return None, 'Set allowed methods, a rate limit, or both'
+            return {'path': v, 'methods': ','.join(methods), 'per_min': per_min}, None
+        if kind == 'repl':
+            frm = str(raw.get('from', ''))
+            if not frm.strip():
+                return None, 'Text to find is required'
+            if len(frm) > 500 or len(str(raw.get('to', ''))) > 2000:
+                return None, 'Text is too long'
+            return {'from': frm, 'to': str(raw.get('to', ''))}, None
+        return None, 'Unknown rule type'
+
+    def site_rules_get(self, get):
+        site = getattr(get, 'siteName', '')
+        if site not in self._sites():
+            return {'status': False, 'msg': 'Site not found'}
+        cur = self._site_rules().get(site, {})
+        return {'status': True, 'site': site,
+                'data': {k: cur.get(k, []) for k in self.SITE_RULE_KINDS},
+                'domains': sorted(h for h, s in self._site_domains().items() if s == site)}
+
+    def site_rule_add(self, get):
+        site = getattr(get, 'siteName', '')
+        kind = getattr(get, 'kind', '')
+        if site not in self._sites():
+            return public.returnMsg(False, 'Site not found')
+        if kind not in self.SITE_RULE_KINDS:
+            return public.returnMsg(False, 'Unknown rule type')
+        try:
+            raw = json.loads(getattr(get, 'data', '{}'))
+        except Exception:
+            return public.returnMsg(False, 'Invalid payload')
+        entry, err = self._site_rule_clean(kind, raw if isinstance(raw, dict) else {})
+        if err:
+            return public.returnMsg(False, err)
+        data = self._site_rules()
+        lst = data.setdefault(site, {}).setdefault(kind, [])
+        if entry in lst:
+            return public.returnMsg(False, 'Already exists')
+        lst.append(entry)
+        self._write_json(self.SITE_RULES_JSON, data)
+        self._compile()
+        public.WriteLog('WAF Pro', 'site {} {} rule added'.format(site, kind))
+        return public.returnMsg(True, 'Added')
+
+    def site_rule_del(self, get):
+        site = getattr(get, 'siteName', '')
+        kind = getattr(get, 'kind', '')
+        try:
+            idx = int(getattr(get, 'index', -1))
+        except Exception:
+            idx = -1
+        data = self._site_rules()
+        lst = data.get(site, {}).get(kind, [])
+        if idx < 0 or idx >= len(lst):
+            return public.returnMsg(False, 'Rule not found')
+        lst.pop(idx)
+        self._write_json(self.SITE_RULES_JSON, data)
+        self._compile()
+        return public.returnMsg(True, 'Removed')
+
+    def _site_rules_compiled(self):
+        enc = lambda v: str(v).replace('%', '%25').replace('|', '%7C').replace('\t', '%09') \
+            .replace('\r', '').replace('\n', ' ')
+        sites = self._sites()
+        out = []
+        for site, kinds in sorted(self._site_rules().items()):
+            if site not in sites or not isinstance(kinds, dict):
+                continue
+            for x in kinds.get('dpath', []):
+                out.append('|'.join(['dpath', site, enc(x['rule'])]))
+            for x in kinds.get('leech', []):
+                out.append('|'.join(['leech', site, enc(x['exts']), enc(x['domains']),
+                                     '1' if x.get('allow_empty') else '0']))
+            for x in kinds.get('purl', []):
+                out.append('|'.join(['purl', site, enc(x['path']), enc(x['param']), enc(x['value'])]))
+            for x in kinds.get('api', []):
+                out.append('|'.join(['api', site, enc(x['path']), enc(x['methods']), str(int(x['per_min']))]))
+            for x in kinds.get('repl', []):
+                out.append('|'.join(['repl', site, enc(x['from']), enc(x['to'])]))
+        return '\n'.join(out)
+
+    # ----------------------------------------------------------------
+    # Self-test — the "Simulated attack" of the stock WAF, but run for real:
+    # the panel sends attack-shaped requests to each site through nginx and
+    # reads back whether the engine stopped them and with which rule.
+    #
+    # Requests come from this server, which the engine normally exempts, so
+    # they carry a secret X-WafPro-Test header (rule/test_token.txt) that
+    # makes the engine judge them like a stranger — without banning us.
+    # ----------------------------------------------------------------
+    # PHP releases carrying the PHP2Shell fix (CVE-2026-109618/109619)
+    PHP2SHELL_FIXED = {(8, 2): 35, (8, 3): 36, (8, 4): 27, (8, 5): 12}
+
+    def _selftest_cases(self, sc):
+        mp_progress = ('--wpX\r\nContent-Disposition: form-data; name="PHP_SESSION_UPLOAD_PROGRESS"\r\n\r\n'
+                       'x\r\n--wpX--\r\n')
+        mp_shell = ('--wpX\r\nContent-Disposition: form-data; name="f"; filename="shell.php"\r\n'
+                    'Content-Type: application/octet-stream\r\n\r\n<?php echo 1; ?>\r\n--wpX--\r\n')
+        mp_ct = 'multipart/form-data; boundary=wpX'
+        return [
+            # id, label, switch that must be on, path+query, ua, body, content-type
+            ('baseline', 'Normal page request (must pass)', None, '/', None, None, None),
+            ('sqli', 'SQL injection in the query string', 'get', '/?id=1%20union%20select%201,2,3', None, None, None),
+            ('xss', 'XSS in the query string', 'get', '/?q=%3Cscript%3Ealert(1)%3C/script%3E', None, None, None),
+            ('lfi', 'Path traversal / local file read', 'get', '/?f=../../../../etc/passwd', None, None, None),
+            ('log4shell', 'Log4Shell', 'get', '/?x=%24%7Bjndi:ldap://x/a%7D', None, None, None),
+            ('scan', 'Exposed .env probe', 'scan', '/.env', None, None, None),
+            ('scanner_ua', 'Scanner user-agent (sqlmap)', 'ua', '/', 'sqlmap/1.8', None, None),
+            ('post_sqli', 'SQL injection in a POST body', 'post', '/',
+             None, 'a=1 union select 1,2', 'application/x-www-form-urlencoded'),
+            ('php2shell', 'PHP2Shell: session upload-progress field', 'php_guard', '/',
+             None, mp_progress, mp_ct),
+            ('webshell', 'Webshell upload (shell.php)', 'upload_ext', '/',
+             None, mp_shell, mp_ct),
+        ]
+
+    def _vhost_https(self, site):
+        for fn in os.listdir(NGINX_CONF_D):
+            base = fn[:-5]
+            if not fn.endswith('.conf'):
+                continue
+            if base == site or any(base == p + site for p in self.VHOST_PREFIXES):
+                body = public.readFile(NGINX_CONF_D + fn) or ''
+                return bool(re.search(r'listen\s+(\[::\]:)?443', body))
+        return False
+
+    def _curl(self, scheme, host, path, ua, body, ctype, token):
+        import subprocess
+        port = '443' if scheme == 'https' else '80'
+        cmd = ['curl', '-sk', '-o', '/dev/null', '-w', '%{http_code}', '--max-time', '10',
+               '--resolve', '{}:{}:127.0.0.1'.format(host, port),
+               '-H', 'X-WafPro-Test: ' + token,
+               '-A', ua or 'Mozilla/5.0 (WAF Pro self-test)',
+               '{}://{}{}'.format(scheme, host, path)]
+        if body is not None:
+            cmd[1:1] = ['--data-binary', body, '-H', 'Content-Type: ' + ctype]
+        try:
+            r = subprocess.run(cmd, stdout=subprocess.PIPE, stderr=subprocess.PIPE, timeout=15)
+            code = (r.stdout or b'').decode().strip() or '000'
+            # 444 closes the connection: curl reports 000 / exit 52
+            return int(code) if code.isdigit() else 0, r.returncode
+        except Exception:
+            return 0, -1
+
+    def self_test(self, get):
+        '''args: siteName (optional; default every site the engine guards)'''
+        import uuid
+        e = self._engine_state()
+        if not e['wired']:
+            return public.returnMsg(False, 'The engine is not wired into nginx; enable it on the Global tab first.')
+        cfg = self._config()
+        if not cfg.get('open'):
+            return public.returnMsg(False, 'The protection switch is off.')
+        token = self._secret('test.key')
+        sites = self._sites()
+        want = getattr(get, 'siteName', '')
+        domains = {}
+        for h, s in self._site_domains().items():
+            if '*' not in h:
+                domains.setdefault(s, []).append(h)
+        results = []
+        for site, sc in sorted(sites.items()):
+            if want and site != want:
+                continue
+            hosts = sorted(domains.get(site, []), key=lambda h: (h != site, len(h)))
+            if not hosts:
+                continue
+            host = hosts[0]
+            scheme = 'https' if self._vhost_https(site) else 'http'
+            rows = []
+            for cid, label, switch, path, ua, body, ctype in self._selftest_cases(sc):
+                marker = uuid.uuid4().hex[:12]
+                p = path + ('&' if '?' in path else '?') + 'wafpro_test=' + marker
+                code, rc = self._curl(scheme, host, p, ua, body, ctype, token)
+                rows.append({'id': cid, 'label': label, 'marker': marker, 'status': code,
+                             'expect': (switch is None) or (bool(sc.get(switch)) if switch != 'upload_ext'
+                                                             else bool(str(sc.get('upload_ext', '')).strip())),
+                             'baseline': switch is None})
+            # the engine writes its block log synchronously; match by marker
+            hits = self._log_markers([r['marker'] for r in rows])
+            ok = True
+            for r in rows:
+                rule = hits.get(r['marker'])
+                r['blocked'] = rule is not None
+                r['rule'] = rule or ''
+                r['rule_name'] = self.FILTER_NAMES.get((rule or '').split(':')[0], rule or '')
+                if r['baseline']:
+                    r['pass'] = not r['blocked']
+                elif r['expect']:
+                    r['pass'] = r['blocked']
+                else:
+                    r['pass'] = None          # that protection is switched off
+                if r['pass'] is False:
+                    ok = False
+                del r['marker']
+            results.append({'site': site, 'host': host, 'scheme': scheme, 'ok': ok, 'tests': rows})
+        return {'status': True, 'sites': results, 'php': self._php_versions(),
+                'health': self._engine_health()}
+
+    def _log_markers(self, markers):
+        out = {}
+        path = WAF_LOG_DIR + time.strftime('%Y-%m-%d') + '.log'
+        try:
+            with open(path, 'rb') as fh:
+                size = os.path.getsize(path)
+                fh.seek(max(size - 2 * 1048576, 0))
+                tail = fh.read().decode('utf-8', 'ignore')
+        except Exception:
+            return out
+        for line in tail.split('\n'):
+            for m in markers:
+                if m in line:
+                    try:
+                        out[m] = json.loads(line).get('rule', '?')
+                    except Exception:
+                        out[m] = '?'
+        return out
+
+    def _php_versions(self):
+        '''Installed PHP builds and whether they carry the PHP2Shell fix.'''
+        out = []
+        base = '/www/server/php/'
+        if not os.path.isdir(base):
+            return out
+        for d in sorted(os.listdir(base)):
+            b = base + d + '/bin/php'
+            if not os.path.exists(b):
+                continue
+            v, _ = public.ExecShell(b + ' -r "echo PHP_VERSION;" 2>/dev/null')
+            v = (v or '').strip()
+            m = re.match(r'^(\d+)\.(\d+)\.(\d+)', v)
+            if not m:
+                continue
+            major, minor, patch = int(m.group(1)), int(m.group(2)), int(m.group(3))
+            fixed = self.PHP2SHELL_FIXED.get((major, minor))
+            if fixed is None:
+                # 8.1 and older never get the fix; 8.6+ is newer than it
+                safe = (major, minor) > (8, 5)
+            else:
+                safe = patch >= fixed
+            out.append({'dir': d, 'version': v, 'php2shell_safe': safe,
+                        'fixed_in': '{}.{}.{}'.format(major, minor, fixed) if fixed else ''})
+        return out
+
+    # ----------------------------------------------------------------
+    # Webshell scan — wafpro_webshell.py does the work in the background.
+    # ----------------------------------------------------------------
+    WS_DIR = PLUGIN_PATH + 'webshell/'
+    QUAR_DIR = PLUGIN_PATH + 'webshell/quarantine/'
+    PANEL_PY = '/www/server/panel/pyenv/bin/python3'
+
+    def _ws_status(self):
+        st = self._read_json(self.WS_DIR + 'status.json', {}) or {}
+        # a crashed/killed scan leaves running=true behind
+        pid = st.get('pid')
+        if st.get('running') and pid and not os.path.exists('/proc/{}'.format(pid)):
+            st['running'] = False
+            st['error'] = st.get('error') or 'scan process exited unexpectedly'
+        return st
+
+    def webshell_scan(self, get):
+        '''args: siteName (optional; default every PHP site)'''
+        st = self._ws_status()
+        if st.get('running'):
+            return public.returnMsg(False, 'A scan is already running')
+        want = getattr(get, 'siteName', '')
+        targets = []
+        try:
+            for r in public.M('sites').field('name,path,project_type').select():
+                if want and r['name'] != want:
+                    continue
+                if not want and (r.get('project_type') or '') not in self.PHP_PROJECT_TYPES:
+                    continue
+                if r.get('path') and os.path.isdir(r['path']):
+                    targets.append({'site': r['name'], 'path': r['path']})
+        except Exception:
+            pass
+        if not targets:
+            return public.returnMsg(False, 'No site directory to scan')
+        if not os.path.exists(self.WS_DIR):
+            os.makedirs(self.WS_DIR, 0o700)
+        self._write_json(self.WS_DIR + 'targets.json', targets)
+        py = self.PANEL_PY if os.path.exists(self.PANEL_PY) else 'python3'
+        public.ExecShell('nohup {} {}wafpro_webshell.py scan >/dev/null 2>&1 &'.format(py, PLUGIN_PATH))
+        public.WriteLog('WAF Pro', 'Webshell scan started ({} site(s))'.format(len(targets)))
+        return public.returnMsg(True, 'Scan started for {} site(s)'.format(len(targets)))
+
+    def webshell_status(self, get):
+        return {'status': True, 'scan': self._ws_status()}
+
+    def webshell_results(self, get):
+        res = self._read_json(self.WS_DIR + 'results.json', {}) or {}
+        files = [f for f in res.get('files', []) if os.path.exists(f.get('file', ''))]
+        return {'status': True, 'time': res.get('time', 0), 'scanned': res.get('scanned', 0),
+                'files': files, 'quarantine': self._quarantine_list(),
+                'scan': self._ws_status()}
+
+    def _ws_known(self, path):
+        '''Only files the scanner reported may be read/moved through the UI.'''
+        res = self._read_json(self.WS_DIR + 'results.json', {}) or {}
+        return any(f.get('file') == path for f in res.get('files', []))
+
+    def webshell_view(self, get):
+        path = getattr(get, 'file', '')
+        if not self._ws_known(path) or not os.path.isfile(path):
+            return public.returnMsg(False, 'File not in the scan results')
+        with open(path, 'rb') as fh:
+            body = fh.read(20000).decode('utf-8', 'replace')
+        return {'status': True, 'file': path, 'body': body,
+                'truncated': os.path.getsize(path) > 20000}
+
+    def _quarantine_list(self):
+        idx = self._read_json(self.QUAR_DIR + 'index.json', []) or []
+        return [q for q in idx if os.path.exists(self.QUAR_DIR + q.get('id', ''))]
+
+    def webshell_quarantine(self, get):
+        '''Move a reported file out of the web root (restorable).'''
+        import shutil
+        path = getattr(get, 'file', '')
+        if not self._ws_known(path) or not os.path.isfile(path):
+            return public.returnMsg(False, 'File not in the scan results')
+        if not os.path.exists(self.QUAR_DIR):
+            os.makedirs(self.QUAR_DIR, 0o700)
+        qid = '{}_{}'.format(int(time.time() * 1000), re.sub(r'[^A-Za-z0-9._-]', '_', os.path.basename(path)))
+        st = os.stat(path)
+        shutil.move(path, self.QUAR_DIR + qid)
+        os.chmod(self.QUAR_DIR + qid, 0o600)
+        idx = self._read_json(self.QUAR_DIR + 'index.json', []) or []
+        idx.append({'id': qid, 'file': path, 'time': int(time.time()),
+                    'mode': st.st_mode & 0o7777, 'uid': st.st_uid, 'gid': st.st_gid})
+        self._write_json(self.QUAR_DIR + 'index.json', idx)
+        public.WriteLog('WAF Pro', 'Webshell quarantined: {}'.format(path))
+        return public.returnMsg(True, 'Moved to quarantine')
+
+    def webshell_restore(self, get):
+        import shutil
+        qid = os.path.basename(getattr(get, 'id', ''))
+        idx = self._read_json(self.QUAR_DIR + 'index.json', []) or []
+        rec = next((q for q in idx if q.get('id') == qid), None)
+        if not rec or not os.path.exists(self.QUAR_DIR + qid):
+            return public.returnMsg(False, 'Not in quarantine')
+        if os.path.exists(rec['file']):
+            return public.returnMsg(False, 'A file already exists at the original path')
+        shutil.move(self.QUAR_DIR + qid, rec['file'])
+        try:
+            os.chmod(rec['file'], rec.get('mode', 0o644))
+            os.chown(rec['file'], rec.get('uid', 0), rec.get('gid', 0))
+        except Exception:
+            pass
+        self._write_json(self.QUAR_DIR + 'index.json', [q for q in idx if q.get('id') != qid])
+        return public.returnMsg(True, 'Restored')
+
+    def webshell_delete(self, get):
+        qid = os.path.basename(getattr(get, 'id', ''))
+        idx = self._read_json(self.QUAR_DIR + 'index.json', []) or []
+        if not any(q.get('id') == qid for q in idx):
+            return public.returnMsg(False, 'Not in quarantine')
+        try:
+            os.remove(self.QUAR_DIR + qid)
+        except Exception:
+            pass
+        self._write_json(self.QUAR_DIR + 'index.json', [q for q in idx if q.get('id') != qid])
+        return public.returnMsg(True, 'Deleted permanently')
+
+    def webshell_ignore(self, get):
+        '''Mark a reported file as a false positive (by content hash, so an
+        edited file is scanned again).'''
+        path = getattr(get, 'file', '')
+        res = self._read_json(self.WS_DIR + 'results.json', {}) or {}
+        rec = next((f for f in res.get('files', []) if f.get('file') == path), None)
+        if not rec or not rec.get('hash'):
+            return public.returnMsg(False, 'File not in the scan results')
+        ign = self._read_json(self.WS_DIR + 'ignore.json', []) or []
+        if rec['hash'] not in ign:
+            ign.append(rec['hash'])
+        self._write_json(self.WS_DIR + 'ignore.json', ign)
+        res['files'] = [f for f in res.get('files', []) if f.get('file') != path]
+        self._write_json(self.WS_DIR + 'results.json', res)
+        return public.returnMsg(True, 'Marked as safe')

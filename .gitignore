@@ -27,3 +27,10 @@ malicious.json
 .idea/
 *.swp
 *~
+
+# graft's local graph cache — regenerable, not committed (run `graft build`).
+/graft/
+
+# local tooling
+graft/
+.ignore
