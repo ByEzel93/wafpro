@@ -472,3 +472,5 @@ select.wp-in{height:32px}
   font:12px/1.6 ui-monospace,Menlo,Consolas,monospace;white-space:pre-wrap;word-break:break-all;color:#303133}
 #wafpro-app .wp-bl-date + .wp-site-box{margin-top:12px}
 .wp-det-v .wp-lnk{color:#20a53a;cursor:pointer}
+#wafpro-app .wp-list-bar .wp-site-search{margin-left:auto}
+#wafpro-app .wp-list-bar.top{margin-top:0;border-top:none;padding-top:0}
