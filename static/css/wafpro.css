@@ -783,3 +783,5 @@ select.wp-in{height:32px}
 #wafpro-app .am-zoom span:hover{color:#20a53a}
 #wafpro-app .am-legend{position:absolute;left:16px;bottom:18px;display:flex;align-items:center;gap:6px;font-size:11px;color:#909399}
 #wafpro-app .am-legend i{width:90px;height:8px;border-radius:4px;background:linear-gradient(90deg,#fdd835,#fb8c00,#e53935)}
+#wafpro-app a[href="javascript:;"], .wp-g-dlg a[href="javascript:;"]{color:#20a53a;text-decoration:none}
+#wafpro-app a[href="javascript:;"]:hover{text-decoration:underline}
