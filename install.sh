@@ -23,6 +23,27 @@ wafpro_main.wafpro_main()._compile()
 " 2>&1 | tail -3
 }
 
+# libinjection (engine/libinjection, BSD-3) decides SQLi/XSS for the engine
+# through LuaJIT's FFI. Without a compiler the engine falls back to its own
+# Lua analysers, so a failed build is a warning, not an error.
+Build_libinjection()
+{
+	src=$pluginPath/engine/libinjection
+	[ -d $src ] || return
+	if ! command -v gcc >/dev/null 2>&1; then
+		echo "NOTE: gcc not found — SQLi/XSS semantic analysis uses the built-in Lua analysers."
+		return
+	fi
+	if gcc -O2 -fPIC -shared -o $enginePath/libinjection.so.new $src/*.c 2>/tmp/wafpro_libinjection.log; then
+		mv -f $enginePath/libinjection.so.new $enginePath/libinjection.so
+		chmod 644 $enginePath/libinjection.so
+		echo "libinjection built"
+	else
+		rm -f $enginePath/libinjection.so.new
+		echo "WARNING: libinjection build failed (see /tmp/wafpro_libinjection.log); using the built-in analysers."
+	fi
+}
+
 Install_wafpro()
 {
 	mkdir -p $pluginPath/cache $pluginPath/export $pluginPath/rules $pluginPath/webshell
@@ -45,6 +66,7 @@ Install_wafpro()
 	done
 	# Drop the old per-request loader from pre-2.0 layouts (engine is cached now)
 	rm -f $enginePath/loader.lua
+	Build_libinjection
 
 	# The panel ships the country DB but no longer refreshes it (task.py's
 	# flush_geoip is commented out), so fetch it ourselves when missing.

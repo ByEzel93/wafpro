@@ -25,6 +25,27 @@ local _M = {}
 local sub, lower, find, byte = string.sub, string.lower, string.find, string.byte
 local MAX_LEN = 8192
 
+-- libinjection (BSD-3, engine/libinjection/), built by install.sh into the
+-- engine dir and reached through LuaJIT's FFI. When it is there it decides
+-- SQLi and XSS; the hand-written analysers below are the fallback for boxes
+-- without a C compiler (and outside nginx, where there is no FFI).
+local LIBINJECTION = '/www/server/wafpro/libinjection.so'
+local li
+do
+    local ok, ffi = pcall(require, 'ffi')
+    if ok then
+        pcall(ffi.cdef, [[
+            int libinjection_sqli(const char *s, size_t slen, char fingerprint[]);
+            int libinjection_xss(const char *s, size_t slen);
+        ]])
+        local loaded, lib = pcall(ffi.load, LIBINJECTION)
+        if loaded then
+            li = { lib = lib, fp = ffi.new('char[8]'), str = ffi.string }
+        end
+    end
+end
+_M.engine = li and 'libinjection' or 'builtin'
+
 -- ================================================================ SQL
 
 local function set(list)
@@ -253,6 +274,12 @@ end
 function _M.sqli(v)
     if not v or #v < 2 then return nil end
     if #v > MAX_LEN then v = sub(v, 1, MAX_LEN) end
+    if li then
+        if li.lib.libinjection_sqli(v, #v, li.fp) == 1 then
+            return 'sql fingerprint ' .. li.str(li.fp)
+        end
+        return nil
+    end
     if not sql_candidate(v) then return nil end
     local r = analyze(tokenize(v), 'raw')
     if r then return r end
@@ -318,6 +345,9 @@ function _M.xss(v)
     if not v or #v < 3 then return nil end
     if #v > MAX_LEN then v = sub(v, 1, MAX_LEN) end
     if not xss_candidate(v) then return nil end
+    if li then
+        return li.lib.libinjection_xss(v, #v) == 1 and 'html/script injection' or nil
+    end
     local s = decode_entities(v:gsub('%z', ''))
     local ls = lower(s)
 
@@ -415,7 +445,9 @@ end
 function _M.check(v, kinds)
     if type(v) ~= 'string' or v == '' then return nil end
     -- the common case: plain words, numbers, slugs, emails — nothing to parse
-    if not find(v, '[^%w%s%.,_:@/%-]') and not find(lower(v), '%f[%w]union%f[^%w]')
+    if li then
+        if not find(v, '[^%w%.,_:@/%-]') then return nil end
+    elseif not find(v, '[^%w%s%.,_:@/%-]') and not find(lower(v), '%f[%w]union%f[^%w]')
        and not find(lower(v), '%f[%w]order%s+by%f[^%w]') and not find(v, '%.%./') then
         return nil
     end

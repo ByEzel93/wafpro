@@ -1198,6 +1198,29 @@ local function json_body(ctx)
 end
 
 -- Read an urlencoded POST body once per request, however many checks want it.
+-- Fields that carry free text in every CMS (posts, comments, messages,
+-- search boxes). Article bodies legitimately contain SQL, script and shell
+-- snippets, so the keyword rules skip their values; semantic analysis
+-- (libinjection) still sees them. Very long names are machine-made and get
+-- the same treatment.
+local FREE_TEXT = {}
+for w in ([[content contents body msg message subject text comment comments description
+    excerpt post_content newcontent kw keyword srchtxt file files img html editor]]):gmatch('%S+') do
+    FREE_TEXT[w] = true
+end
+
+-- each_value() callback: match one decoded name or value against rules.
+-- skip_free: leave out the values of FREE_TEXT fields (form bodies only)
+local function regex_judge(rules, skip_free)
+    return function(k, v)
+        if skip_free and v ~= k then
+            local name = tostring(k):lower()
+            if FREE_TEXT[name] or #name > 64 then return nil end
+        end
+        if match_rx(rules, v) then return tostring(k), v:sub(1, 200) end
+    end
+end
+
 local function form_body(ctx)
     if ctx.body_read then return ctx.body end
     ctx.body_read = true
@@ -1848,14 +1871,13 @@ function _M.access()
         end
     end
 
-    -- query string
-    if sc.get then
-        local args = ngx.var.args
-        if args then
-            local dec = ngx.unescape_uri(args)
-            if match_rx(state.r_get, dec) then
-                return deny(ips, site, 'get', dec, tonumber(cfg.get_status) or 403)
-            end
+    -- query string: each parameter (name and value) on its own, decoded —
+    -- a pattern matched across the whole string fires on text that spans
+    -- two unrelated fields
+    if sc.get and ngx.var.args then
+        local k, v = each_value(ngx.req.get_uri_args(200), regex_judge(state.r_get, false))
+        if k then
+            return deny(ips, site, 'get', k .. '=' .. v, tonumber(cfg.get_status) or 403)
         end
     end
 
@@ -1872,8 +1894,9 @@ function _M.access()
         if sc.post then
             local body = form_body(ctx)
             if body then
-                if match_rx(state.r_post, body) then
-                    return deny(ips, site, 'post', body, tonumber(cfg.post_status) or 403)
+                local k, v = each_value(ngx.decode_args(ctx.body_raw or '', 300), regex_judge(state.r_post, true))
+                if k then
+                    return deny(ips, site, 'post', k .. '=' .. v, tonumber(cfg.post_status) or 403)
                 end
                 -- a PHP/JSP file smuggled in as a base64 data: URI field
                 if body:find('data:', 1, true) and
@@ -1887,8 +1910,14 @@ function _M.access()
             -- JSON APIs carry the same payloads; JSON escapes (\u0027 for
             -- a quote) are decoded first so they cannot hide them
             local jb = json_body(ctx)
-            if jb and match_rx(state.r_post, jb) then
-                return deny(ips, site, 'post', jb, tonumber(cfg.post_status) or 403)
+            if jb then
+                local judge = regex_judge(state.r_post, false)
+                for _, v in ipairs(json_strings(jb)) do
+                    local k, val = judge('json', v)
+                    if k then
+                        return deny(ips, site, 'post', k .. '=' .. val, tonumber(cfg.post_status) or 403)
+                    end
+                end
             end
         end
 

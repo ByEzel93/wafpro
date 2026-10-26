@@ -100,7 +100,8 @@
       ],
       site: [
         { t: 'SQL injection defense', d: 'Detect malicious SQL statements and prevent malicious tampering of the database due to SQL injection',
-          n: 'Semantic analysis per parameter. If the content published on your website contains SQL statements, enabling this defense may block publishing.',
+          n: 'Semantic analysis per parameter (' + ((c.engine || {}).semantic || 'built-in') + ' engine). ' +
+            'If the content published on your website contains SQL statements, enabling this defense may block publishing.',
           sw: 'm_sqli', st: 'sqli_status', btns: [resp] },
         { t: 'XSS Defense', d: 'Detect XSS syntax to prevent web pages from being maliciously tampered with, user information leaked, and permissions stolen',
           n: 'If the content published on your website contains javascript tutorials, enabling this defense may block publishing.',
