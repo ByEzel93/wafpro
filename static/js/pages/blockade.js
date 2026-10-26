@@ -427,6 +427,9 @@
 
   // exports
   W.BL_SUBS = BL_SUBS;
+  W.blockIp = blockIp;
+  W.whiteUrl = whiteUrl;
+  W.interceptDetail = interceptDetail;
   W.bindPager = bindPager;
   W.blIntercept = blIntercept;
   W.blIpBlock = blIpBlock;

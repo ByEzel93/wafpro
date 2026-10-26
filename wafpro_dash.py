@@ -76,6 +76,50 @@ ACCESS_RE = re.compile(
     r'(?P<status>\d{3}) (?P<size>\d+|-)(?: "(?P<ref>[^"]*)" "(?P<ua>[^"]*)")?'
     r'(?:.*?\burt=(?P<urt>[\d.]+|-))?'
 )
+STATIC_EXT = re.compile(r'\.(?:css|js|mjs|map|png|jpe?g|gif|webp|avif|svg|ico|bmp|woff2?|ttf|otf|eot|mp4|webm|mp3|ogg|wav|pdf|zip|gz|txt|xml|json)$', re.I)
+
+
+def _client(ua):
+    '''(browser, os) from a User-Agent — the coarse families the
+    Client distribution card shows.'''
+    u = (ua or '').lower()
+    if not u or u == '-':
+        return 'Unknown', 'Unknown'
+    if any(k in u for k in ('bot', 'spider', 'crawl', 'slurp', 'curl', 'wget', 'python', 'go-http', 'java/', 'okhttp', 'axios', 'node')):
+        b = 'Bot / tool'
+    elif 'edg/' in u or 'edge/' in u:
+        b = 'Edge'
+    elif 'opr/' in u or 'opera' in u:
+        b = 'Opera'
+    elif 'samsungbrowser' in u:
+        b = 'Samsung Internet'
+    elif 'micromessenger' in u:
+        b = 'WeChat'
+    elif 'firefox/' in u or 'fxios' in u:
+        b = 'Firefox'
+    elif 'chrome/' in u or 'crios' in u:
+        b = 'Chrome'
+    elif 'safari/' in u:
+        b = 'Safari'
+    elif 'msie' in u or 'trident/' in u:
+        b = 'IE'
+    else:
+        b = 'Other'
+    if 'windows' in u:
+        o = 'Windows'
+    elif 'android' in u:
+        o = 'Android'
+    elif 'iphone' in u or 'ipad' in u or 'ios' in u:
+        o = 'iOS'
+    elif 'mac os' in u or 'macintosh' in u:
+        o = 'macOS'
+    elif 'linux' in u:
+        o = 'Linux'
+    else:
+        o = 'Other'
+    return b, o
+
+
 MONTHS = {'Jan': 1, 'Feb': 2, 'Mar': 3, 'Apr': 4, 'May': 5, 'Jun': 6,
           'Jul': 7, 'Aug': 8, 'Sep': 9, 'Oct': 10, 'Nov': 11, 'Dec': 12}
 
@@ -183,6 +227,14 @@ def access_stats(day=None):
     url_count = defaultdict(int)
     domain_bytes = defaultdict(int)
     ip_hits = defaultdict(int)
+    # Overview detail cards (today only)
+    status_count = defaultdict(int)
+    browser_count = defaultdict(int)
+    os_count = defaultdict(int)
+    ref_count = defaultdict(int)
+    ip_stat = defaultdict(lambda: [0, 0, 0, 0, ''])     # hits, bytes, static hits, static bytes, site
+    url_stat = defaultdict(lambda: [0, 0, 0, 0, ''])
+    dyn_static = [0, 0]
 
     sites = get_sites()
     if not sites:
@@ -220,8 +272,29 @@ def access_stats(day=None):
                 out['hourly']['total'][h] += 1
                 out['hourly']['traffic'][h] += size
                 hourly_ips[h].add(ip)
-                url_count[m.group('url').split('?')[0][:120]] += 1
+                path = m.group('url').split('?')[0][:120]
+                url_count[path] += 1
                 domain_bytes[site] += size
+                st = m.group('status')
+                status_count[st] += 1
+                b, o = _client(m.group('ua'))
+                browser_count[b] += 1
+                os_count[o] += 1
+                ref = m.group('ref') or '-'
+                if ref in ('-', ''):
+                    ref_count['Direct'] += 1
+                else:
+                    ref_count[ref.split('/')[2] if '://' in ref else ref[:80]] += 1
+                static = bool(STATIC_EXT.search(path))
+                dyn_static[1 if static else 0] += 1
+                for key, tab in ((ip, ip_stat), (path, url_stat)):
+                    r = tab[key]
+                    r[0] += 1
+                    r[1] += size
+                    if static:
+                        r[2] += 1
+                        r[3] += size
+                    r[4] = site
             elif day == yday:
                 out['yesterday']['requests'] += 1
                 out['yesterday']['bytes'] += size
@@ -239,6 +312,18 @@ def access_stats(day=None):
     out['top_domains'] = sorted(
         [{'domain': k, 'bytes': v} for k, v in domain_bytes.items()],
         key=lambda x: x['bytes'], reverse=True)[:10]
+
+    def top(d, n=None):
+        return sorted(([k, v] for k, v in d.items()), key=lambda x: x[1], reverse=True)[:n]
+    out['status_codes'] = top(status_count)
+    out['browsers'] = top(browser_count)
+    out['oses'] = top(os_count)
+    out['referrers'] = top(ref_count, 50)
+    out['dyn_static'] = dyn_static
+    out['ip_traffic'] = [{'ip': k, 'site': v[4], 'count': v[0], 'bytes': v[1], 'static': v[2], 'static_bytes': v[3]}
+                         for k, v in sorted(ip_stat.items(), key=lambda x: x[1][1], reverse=True)[:100]]
+    out['url_traffic'] = [{'url': k, 'site': v[4], 'count': v[0], 'bytes': v[1], 'static': v[2], 'static_bytes': v[3]}
+                          for k, v in sorted(url_stat.items(), key=lambda x: x[1][0], reverse=True)[:100]]
     return cache_set(key, out)
 
 
@@ -291,16 +376,20 @@ def waf_stats(day=None):
                 out['hourly'][int(time.strftime('%H', time.localtime(rec['time'])))] += 1
             except Exception:
                 pass
-            if len(out['recent']) < 30:
-                out['recent'].append({
-                    'time': time.strftime('%Y-%m-%d %H:%M:%S',
-                                          time.localtime(rec.get('time', 0))),
-                    'ip': rec.get('ip', ''), 'method': rec.get('method', ''),
-                    'url': (rec.get('uri') or '')[:100],
-                    'ua': (rec.get('ua') or '')[:60],
-                    'type': rec.get('rule', ''), 'site': rec.get('site', ''),
-                })
+            # newest 30: the file is oldest-first, so keep the tail
+            if len(out['recent']) >= 30:
+                out['recent'].pop(0)
+            out['recent'].append({
+                'time': time.strftime('%Y-%m-%d %H:%M:%S',
+                                      time.localtime(rec.get('time', 0))),
+                'ip': rec.get('ip', ''), 'method': rec.get('method', ''),
+                'url': (rec.get('uri') or '')[:100],
+                'ua': (rec.get('ua') or '')[:60],
+                'type': rec.get('rule', ''), 'site': rec.get('site', ''),
+                'payload': (rec.get('payload') or '')[:200], 'rx': (rec.get('rx') or '')[:300],
+            })
 
+    out['recent'].reverse()
     out['top_ips'] = sorted([{'ip': k, 'count': v} for k, v in ip_count.items()],
                             key=lambda x: x['count'], reverse=True)[:12]
     out['top_domains'] = sorted([{'domain': k, 'count': v} for k, v in dom_count.items()],
@@ -331,11 +420,12 @@ def public_read(path):
         return ''
 
 
-def realtime_qps(window=60):
+def realtime_qps(window=300, step=10):
     '''Requests per second over the last <window> seconds, from access logs.
     Also averages upstream response time when tracking is enabled.'''
     now = time.time()
     buckets = defaultdict(int)
+    bytes_ = defaultdict(int)
     rt_sum = defaultdict(float)
     rt_cnt = defaultdict(int)
     sites = get_sites()
@@ -349,8 +439,8 @@ def realtime_qps(window=60):
         path = NGX_LOG_DIR + site + '.log'
         if not os.path.exists(path):
             continue
-        body = _tail_bytes(path, 512 * 1024)
-        for line in body.split('\n')[-4000:]:
+        body = _tail_bytes(path, 2 * 1024 * 1024)
+        for line in body.split('\n')[-20000:]:
             m = ACCESS_RE.match(line) if line else None
             if not m:
                 continue
@@ -365,6 +455,8 @@ def realtime_qps(window=60):
             if 0 <= age <= window:
                 sec = int(epoch)
                 buckets[sec] += 1
+                sz = m.group('size')
+                bytes_[sec] += int(sz) if sz and sz.isdigit() else 0
                 urt = m.groupdict().get('urt')
                 if urt and urt not in ('-', ''):
                     try:
@@ -374,12 +466,14 @@ def realtime_qps(window=60):
                         pass
     points = []
     rt_points = []
+    bw_points = []
     start = int(now) - window
-    for t in range(start, int(now) + 1, 5):
-        rng = range(t, t + 5)
+    for t in range(start, int(now) + 1, step):
+        rng = range(t, t + step)
         c = sum(buckets.get(x, 0) for x in rng)
         label = time.strftime('%H:%M:%S', time.localtime(t))
-        points.append({'t': label, 'v': round(c / 5.0, 2)})
+        points.append({'t': label, 'v': round(c / float(step), 2)})
+        bw_points.append({'t': label, 'v': round(sum(bytes_.get(x, 0) for x in rng) / float(step))})
         s = sum(rt_sum.get(x, 0.0) for x in rng)
         n = sum(rt_cnt.get(x, 0) for x in rng)
         rt_points.append({'t': label, 'v': round(s / n * 1000, 1) if n else 0})
@@ -393,6 +487,8 @@ def realtime_qps(window=60):
         'points': points,
         'now': points[-1]['v'] if points else 0,
         'rt_points': rt_points,
+        'bw_points': bw_points,
+        'bw_now': bw_points[-1]['v'] if bw_points else 0,
         'rt_now': last_rt,
         'rt_tracked': tracked,
     }
@@ -430,6 +526,13 @@ def _geo_enrich(top_ips):
     by_country = sorted([{'code': k, 'count': v} for k, v in countries.items()],
                         key=lambda x: x['count'], reverse=True)
     return map_points, by_country
+
+
+def _geo_rows(rows):
+    for r in rows[:100]:
+        g = geo_lookup(r['ip'])
+        r['country'] = g.get('country', '')
+    return rows
 
 
 def overview(day=None):
@@ -476,6 +579,13 @@ def overview(day=None):
         'top_urls': acc['top_urls'],
         'top_domains_traffic': acc['top_domains'],
         'by_rule': waf['by_rule'],
+        'status_codes': acc.get('status_codes', []),
+        'browsers': acc.get('browsers', []),
+        'oses': acc.get('oses', []),
+        'referrers': acc.get('referrers', []),
+        'dyn_static': acc.get('dyn_static', [0, 0]),
+        'ip_traffic': _geo_rows(acc.get('ip_traffic', [])),
+        'url_traffic': acc.get('url_traffic', []),
         'recent_attacks': waf['recent'],
         'waf_total': waf['today']['blocks'] + waf['yesterday']['blocks'],
     }
