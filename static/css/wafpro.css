@@ -443,3 +443,32 @@ select.wp-in{height:32px}
 #wafpro-app .wp-st-opt{padding:0 12px;height:34px;line-height:34px;color:#303133;white-space:nowrap}
 #wafpro-app .wp-st-opt:hover{background:#f5f7fa}
 #wafpro-app .wp-st-opt.on{color:var(--wp-green);font-weight:500}
+
+/* ================= Blockade (aaPanel 8) ================= */
+#wafpro-app .wp-bl-bar .wp-site-search{margin-left:auto}
+#wafpro-app .wp-bl-bar .wp-site-search .wp-in{width:300px}
+#wafpro-app .wp-site-tbl td.ell{max-width:220px;overflow:hidden;text-overflow:ellipsis}
+#wafpro-app .wp-site-tbl td.wp-bl-url{max-width:260px}
+#wafpro-app .wp-site-tbl td.wp-ops{text-align:right}
+#wafpro-app .wp-site-tbl .red{color:#f56c6c}
+#wafpro-app .wp-bl-date{display:flex;align-items:center;gap:10px;margin:12px 0 0}
+/* el-radio-button group */
+.wp-seg-btn{display:inline-flex;border:1px solid #dcdfe6;border-radius:4px;overflow:hidden}
+.wp-seg-btn span{padding:0 15px;height:30px;line-height:30px;font-size:13px;color:#606266;cursor:pointer;
+  border-left:1px solid #dcdfe6;background:#fff;user-select:none}
+.wp-seg-btn span:first-child{border-left:none}
+.wp-seg-btn span:hover{color:var(--wp-green)}
+.wp-seg-btn span.on{background:var(--wp-green);color:#fff}
+#wafpro-app .wp-bl-pick.on{border-color:var(--wp-green);color:var(--wp-green)}
+#wafpro-app .wp-bl-pick .wp-ico{width:14px;height:14px}
+/* details dialog: label / value rows */
+.wp-det{max-height:560px;overflow:auto}
+.wp-det-row{display:flex;gap:14px;padding:7px 0;border-bottom:1px dashed #ebeef5;font-size:13px}
+.wp-det-row:last-child{border-bottom:none}
+.wp-det-k{width:120px;flex:none;text-align:right;color:#909399}
+.wp-det-v{flex:1;min-width:0;color:#303133;word-break:break-all}
+.wp-det-v .red{color:#f56c6c}
+.wp-det-code{display:block;background:#f5f7fa;border:1px solid #ebeef5;border-radius:4px;padding:6px 8px;
+  font:12px/1.6 ui-monospace,Menlo,Consolas,monospace;white-space:pre-wrap;word-break:break-all;color:#303133}
+#wafpro-app .wp-bl-date + .wp-site-box{margin-top:12px}
+.wp-det-v .wp-lnk{color:#20a53a;cursor:pointer}

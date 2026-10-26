@@ -670,10 +670,29 @@ local function log_block(ip, site, rule, payload, status)
     if not f then return end
     -- hand-rolled json: no cjson dependency (see header)
     f:write(fmt('{"time":%d,"ip":"%s","site":"%s","rule":"%s","method":"%s",' ..
-                '"uri":"%s","ua":"%s","payload":"%s","status":%d}\n',
+                '"uri":"%s","ua":"%s","payload":"%s","rx":"%s","status":%d}\n',
         os.time(), esc(ip), esc(site), esc(rule),
         esc(ngx.var.request_method), esc(ngx.var.request_uri),
-        esc(ngx.var.http_user_agent), esc((payload or ''):sub(1, 200)), status))
+        esc(ngx.var.http_user_agent), esc((payload or ''):sub(1, 200)),
+        esc((ngx.ctx.wafpro_rx or ''):sub(1, 300)), status))
+    f:close()
+end
+
+-- Rule hit record (Blockade > Rule hit record): every custom-rule match,
+-- whether it let the request through or stopped it. rulehit_type picks
+-- which of the two get written; the panel trims the file to the newest rows.
+local function log_hit(ip, site, id, act)
+    local want = (state.cfg or {}).rulehit_type or 'all'
+    if want == 'none' or (want ~= 'all' and want ~= act) then return end
+    -- one row per IP and rule every 30s: an allow rule on a busy path
+    -- would otherwise write a line per request
+    local dict = ngx.shared.wafpro_cc
+    if dict and not dict:add('h:' .. id .. ':' .. ip, 1, 30) then return end
+    local f = io.open(LOG_DIR .. 'rulehit.log', 'a')
+    if not f then return end
+    f:write(fmt('{"time":%d,"ip":"%s","site":"%s","id":"%s","act":"%s","method":"%s","uri":"%s","ua":"%s"}\n',
+        os.time(), esc(ip), esc(site), esc(id), act, esc(ngx.var.request_method),
+        esc((ngx.var.request_uri or ''):sub(1, 300)), esc((ngx.var.http_user_agent or ''):sub(1, 200))))
     f:close()
 end
 
@@ -697,7 +716,9 @@ local function ban(ip, secs, site, rule, hits)
     blocked:set(ip, now, secs)
     local f = io.open(LOG_DIR .. 'drop_ip.log', 'a')
     if f then
-        f:write(fmt('%s|%d|%d|%s|%s|%d\n', ip, now + secs, hits or 0, esc(site), esc(rule), now))
+        -- '|' cannot appear unescaped: it is the field separator
+        local u = (ngx.var.request_uri or ''):sub(1, 300):gsub('|', '%%7C')
+        f:write(fmt('%s|%d|%d|%s|%s|%d|%s\n', ip, now + secs, hits or 0, esc(site), esc(rule), now, esc(u)))
         f:close()
     end
 end
@@ -786,6 +807,14 @@ local function match_any(rules, subject)
         if ok and from then return rules[i] end
     end
     return nil
+end
+
+-- match_any for the detection lists: the pattern that fired goes into the
+-- block record ("Filter rule" in Blockade details).
+local function match_rx(rules, subject)
+    local hit = match_any(rules, subject)
+    if hit then ngx.ctx.wafpro_rx = hit end
+    return hit
 end
 
 -- Which managed site is this request for? Host header first (it carries
@@ -992,10 +1021,12 @@ local function custom_check(site, ctx)
             end
             if all and #r.conds > 0 then
                 if r.action == 'allow' then
+                    log_hit(ctx.ips, site, r.id, 'release')
                     ctx.allow = true
                     return true                     -- whitelist: stop, let it through
                 end
                 local st = (r.action == 'code') and r.status or (tonumber(state.cfg.custom_status) or 403)
+                log_hit(ctx.ips, site, r.id, 'intercept')
                 return deny(ctx.ips, site, 'custom:' .. r.id, 'custom rule', st)
             end
         end
@@ -1626,13 +1657,13 @@ function _M.access()
     end
 
     -- url blacklist
-    if match_any(state.url_black, uri) then
+    if match_rx(state.url_black, uri) then
         return deny(ips, site, 'url-black', uri, tonumber(cfg.black_status) or 444)
     end
 
     -- URL keywords: forbidden words anywhere in the decoded request line
     if #state.url_keyword > 0 then
-        local hit = match_any(state.url_keyword, ngx.unescape_uri(uri))
+        local hit = match_rx(state.url_keyword, ngx.unescape_uri(uri))
         if hit then return deny(ips, site, 'url-keyword', hit, tonumber(cfg.black_status) or 444) end
     end
 
@@ -1697,7 +1728,7 @@ function _M.access()
 
     -- user-agent
     if sc.ua then
-        if match_any(state.r_ua, ua or '') then
+        if match_rx(state.r_ua, ua or '') then
             return deny(ips, site, 'user-agent', ua, tonumber(cfg.ua_status) or 403)
         end
     end
@@ -1705,7 +1736,7 @@ function _M.access()
     -- scanner paths: matched on the path alone. Matching the raw request_uri
     -- let "/.env?x" slip past a "/\.env(/|$)" rule.
     if sc.scan then
-        if match_any(state.r_scan, ngx.unescape_uri(ctx.uri)) then
+        if match_rx(state.r_scan, ngx.unescape_uri(ctx.uri)) then
             return deny(ips, site, 'scan', uri, tonumber(cfg.scan_status) or 444)
         end
     end
@@ -1713,10 +1744,10 @@ function _M.access()
     -- known exploits (virtual patches): decoded request line + form body
     if sc.nday and #state.r_nday > 0 then
         local line = ngx.unescape_uri(uri):lower()
-        local hit = match_any(state.r_nday, line)
+        local hit = match_rx(state.r_nday, line)
         if not hit then
             local b = form_body(ctx)
-            if b then hit = match_any(state.r_nday, b) end
+            if b then hit = match_rx(state.r_nday, b) end
         end
         if hit then return deny(ips, site, 'nday', hit, tonumber(cfg.get_status) or 403) end
     end
@@ -1750,7 +1781,7 @@ function _M.access()
         local args = ngx.var.args
         if args then
             local dec = ngx.unescape_uri(args)
-            if match_any(state.r_get, dec) then
+            if match_rx(state.r_get, dec) then
                 return deny(ips, site, 'get', dec, tonumber(cfg.get_status) or 403)
             end
         end
@@ -1759,7 +1790,7 @@ function _M.access()
     -- cookie
     if sc.cookie then
         local ck = ngx.var.http_cookie
-        if match_any(state.r_cookie, ck) then
+        if match_rx(state.r_cookie, ck) then
             return deny(ips, site, 'cookie', ck, tonumber(cfg.cookie_status) or 403)
         end
     end
@@ -1769,7 +1800,7 @@ function _M.access()
         if sc.post then
             local body = form_body(ctx)
             if body then
-                if match_any(state.r_post, body) then
+                if match_rx(state.r_post, body) then
                     return deny(ips, site, 'post', body, tonumber(cfg.post_status) or 403)
                 end
                 -- a PHP/JSP file smuggled in as a base64 data: URI field
@@ -1784,7 +1815,7 @@ function _M.access()
             -- JSON APIs carry the same payloads; JSON escapes (\u0027 for
             -- a quote) are decoded first so they cannot hide them
             local jb = json_body(ctx)
-            if jb and match_any(state.r_post, jb) then
+            if jb and match_rx(state.r_post, jb) then
                 return deny(ips, site, 'post', jb, tonumber(cfg.post_status) or 403)
             end
         end
@@ -1836,7 +1867,7 @@ function _M.access()
         local hay = uri
         local b = form_body(ctx)
         if b then hay = hay .. ' ' .. b end
-        local hit = match_any(state.sensitive, hay)
+        local hit = match_rx(state.sensitive, hay)
         if hit then return deny(ips, site, 'sensitive', hit, tonumber(cfg.black_status) or 444) end
     end
 

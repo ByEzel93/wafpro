@@ -235,9 +235,12 @@ class wafpro_main:
         'weak_pass': False, 'info_leak': False,
         # directory scan defense: more than dirscan_count 404s in dirscan_time s
         'dirscan': False, 'dirscan_time': 60, 'dirscan_count': 120,
+        # Blockade > Rule hit record: which custom-rule matches are written
+        'rulehit_type': 'all',
     }
     # text settings and the values they may take
-    CONFIG_CHOICES = {'cc_def_mode': ('block', 'challenge'), 'cc_def_key': ('ip', 'url', 'path', 'ipua')}
+    CONFIG_CHOICES = {'cc_def_mode': ('block', 'challenge'), 'cc_def_key': ('ip', 'url', 'path', 'ipua'),
+                      'rulehit_type': ('all', 'intercept', 'release', 'none')}
     # Empty = allow every method. Anything here is an allow-list.
     DEFAULT_METHODS = ['GET', 'POST', 'HEAD', 'OPTIONS', 'PUT', 'DELETE', 'PATCH']
     # header|max bytes — oversized headers are probes, not real traffic
@@ -492,17 +495,9 @@ class wafpro_main:
                           'hits': int(f[2]) if f[2].isdigit() else 0,
                           'site': f[3] if len(f) > 3 else '',
                           'rule': f[4] if len(f) > 4 else ''}
-        # The engine only ever appends here, so compact once it gets big:
-        # rewrite with just the live bans and drop the expired history.
-        try:
-            if len(body) > 200000:
-                public.writeFile(self.DROP_LOG, '\n'.join(
-                    '{}|{}|{}|{}|{}|{}'.format(r['ip'], r['until'], r['hits'], r['site'],
-                                              r['rule'], r['start'])
-                    for r in rows.values()) + '\n')
-                os.system('chown www:www {} 2>/dev/null'.format(self.DROP_LOG))
-        except Exception:
-            pass
+        # The engine only ever appends here; the IP blocking record shows the
+        # newest BAN_KEEP_ROWS, so trim to those once the file gets big.
+        self._trim_tail(self.DROP_LOG, body, self.BAN_KEEP_ROWS)
         out = sorted(rows.values(), key=lambda x: x['until'], reverse=True)
         cfg = self._config()
         return {'status': True, 'data': out,
@@ -536,6 +531,147 @@ class wafpro_main:
         self._unban_write(entries)
         self._compile()
         return public.returnMsg(True, 'Cleared {} ban(s)'.format(len(rows)))
+
+    # ---------- Blockade > IP blocking record (history) ----------
+
+    BAN_KEEP_ROWS = 2000
+    RULEHIT_LOG = WAF_LOG_DIR + 'rulehit.log'
+
+    def _trim_tail(self, path, body, keep):
+        '''Cut an append-only log down to its newest keep lines once it has
+        grown well past them (the engine keeps appending to the same inode).'''
+        try:
+            lines = [x for x in body.split('\n') if x.strip()]
+            if len(lines) > keep * 1.25:
+                public.writeFile(path, '\n'.join(lines[-keep:]) + '\n')
+                os.system('chown www:www {} 2>/dev/null'.format(path))
+        except Exception:
+            pass
+
+    def _ban_rows(self):
+        '''Every row of drop_ip.log, newest first, with its live state.'''
+        now = int(time.time())
+        unbanned = self._unban_entries()
+        out = []
+        for line in (public.readFile(self.DROP_LOG) or '').split('\n'):
+            f = line.split('|')
+            if len(f) < 3 or not f[1].isdigit():
+                continue
+            until = int(f[1])
+            start = int(f[5]) if len(f) > 5 and f[5].isdigit() else until
+            lifted = f[0] in unbanned and start <= unbanned[f[0]]
+            rule = f[4] if len(f) > 4 else ''
+            out.append({'ip': f[0], 'start': start, 'until': until,
+                        'secs': max(until - start, 0),
+                        'hits': int(f[2]) if f[2].isdigit() else 0,
+                        'site': f[3] if len(f) > 3 else '', 'rule': rule,
+                        'reason': self.FILTER_NAMES.get(rule.split(':')[0], rule),
+                        'uri': (f[6] if len(f) > 6 else '').replace('%7C', '|'),
+                        'blocking': until > now and not lifted,
+                        'left': max(until - now, 0) if until > now and not lifted else 0})
+        out.sort(key=lambda x: x['start'], reverse=True)
+        return out
+
+    def _with_geo(self, rows, key='ip'):
+        try:
+            geo = self._dash()
+        except Exception:
+            geo = None
+        for r in rows:
+            g = geo.geo_lookup(r[key]) if geo else {}
+            loc = g.get('country', '') or ''
+            if g.get('city'):
+                loc += ' / ' + g['city']
+            r['location'] = loc or 'Unknown'
+        return rows
+
+    def _paged(self, get, rows, q_keys):
+        '''Free-text search over q_keys, then one page of the result.'''
+        q = (getattr(get, 'q', '') or '').strip().lower()
+        if q:
+            rows = [r for r in rows if q in ' '.join(str(r.get(k, '')) for k in q_keys).lower()]
+        try:
+            p = max(int(getattr(get, 'p', 1)), 1)
+        except Exception:
+            p = 1
+        try:
+            size = min(max(int(getattr(get, 'size', 10)), 5), 100000)
+        except Exception:
+            size = 10
+        total = len(rows)
+        return {'status': True, 'total': total, 'p': p, 'size': size,
+                'pages': max((total + size - 1) // size, 1),
+                'data': rows[(p - 1) * size: p * size]}
+
+    def ban_records(self, get):
+        '''Every ban the engine applied (newest first), live or expired.'''
+        rows = self._with_geo(self._ban_rows())
+        res = self._paged(get, rows, ('ip', 'site', 'uri', 'reason', 'location'))
+        res['live'] = sum(1 for r in rows if r['blocking'])
+        return res
+
+    def ban_clear(self, get):
+        '''Drop the ban history. Live bans stay — in the engine and in the
+        file, which is how this tab can still show and lift them.'''
+        live = [r for r in self._ban_rows() if r['blocking']]
+        public.writeFile(self.DROP_LOG, ''.join(
+            '{}|{}|{}|{}|{}|{}|{}\n'.format(r['ip'], r['until'], r['hits'], r['site'], r['rule'],
+                                           r['start'], r['uri'].replace('|', '%7C'))
+            for r in reversed(live)))
+        os.system('chown www:www {} 2>/dev/null'.format(self.DROP_LOG))
+        return public.returnMsg(True, 'Ban history cleared ({} active ban(s) kept)'.format(len(live)))
+
+    def ban_export(self, get):
+        get.size = 100000
+        get.p = 1
+        rows = self.ban_records(get)['data']
+        out = ['Start time,User IP,Site,URL address,Reason for blocking,Time (s),Status,IP location']
+        for r in rows:
+            out.append(','.join(self._csv(v) for v in (
+                time.strftime('%Y-%m-%d %H:%M:%S', time.localtime(r['start'])), r['ip'], r['site'],
+                r['uri'], r['reason'], r['secs'], 'Blocking' if r['blocking'] else 'Expired',
+                r['location'])))
+        return self._export_csv('wafpro_bans', out)
+
+    def _csv(self, v):
+        return '"{}"'.format(str(v).replace('"', '""'))
+
+    def _export_csv(self, prefix, lines):
+        if not os.path.exists(PLUGIN_PATH + 'export'):
+            os.makedirs(PLUGIN_PATH + 'export', 0o700)
+        fname = '{}_{}.csv'.format(prefix, time.strftime('%Y%m%d_%H%M%S'))
+        public.writeFile(PLUGIN_PATH + 'export/' + fname, '\n'.join(lines))
+        return {'status': True, 'rows': len(lines) - 1, 'filename': fname}
+
+    # ---------- Blockade > Rule hit record ----------
+
+    def rulehit_logs(self, get):
+        '''Custom-rule matches the engine recorded (intercepted and released).'''
+        body = public.readFile(self.RULEHIT_LOG) or ''
+        self._trim_tail(self.RULEHIT_LOG, body, self.BAN_KEEP_ROWS)
+        names = {r.get('id'): r.get('name') or r.get('id') for r in self._custom()}
+        act = (getattr(get, 'act', '') or '').strip()
+        rows = []
+        for line in body.split('\n'):
+            try:
+                d = json.loads(line)
+            except Exception:
+                continue
+            if not isinstance(d, dict) or (act and d.get('act') != act):
+                continue
+            d['name'] = names.get(d.get('id'), d.get('id', '') + ' (deleted)')
+            d['time_s'] = time.strftime('%Y-%m-%d %H:%M:%S', time.localtime(d.get('time', 0)))
+            rows.append(d)
+        rows.reverse()
+        rows = self._with_geo(rows)
+        res = self._paged(get, rows, ('ip', 'site', 'uri', 'name', 'ua', 'location'))
+        res['record_type'] = self._config().get('rulehit_type', 'all')
+        return res
+
+    def rulehit_clear(self, get):
+        public.writeFile(self.RULEHIT_LOG, '')
+        os.system('chown www:www {} 2>/dev/null'.format(self.RULEHIT_LOG))
+        return public.returnMsg(True, 'Rule hit records cleared')
 
     def get_methods(self, get):
         return {'status': True, 'data': self._methods(), 'all': self.DEFAULT_METHODS}
@@ -1434,18 +1570,34 @@ h1{margin:0 0 8px;font-size:19px}p{margin:0;color:#5c6470}
         return files
 
     def clear_logs(self, get):
-        '''Delete WAF log files (optionally for one site/date).'''
-        site = getattr(get, 'siteName', '')
+        '''Delete WAF log records: every site (whole day files), or just one
+        site's rows — the day files hold all sites, so those are rewritten.'''
+        site = (getattr(get, 'siteName', '') or '').strip()
         date = getattr(get, 'date', 'all')
         removed = 0
-        for s, path in self._log_files(site, date):
+        for _s, path in self._log_files('', date):
             try:
-                os.remove(path)
-                removed += 1
+                if not site:
+                    os.remove(path)
+                    removed += 1
+                    continue
+                keep = []
+                with open(path, 'r', errors='ignore') as fh:
+                    for line in fh:
+                        try:
+                            if json.loads(line).get('site') == site:
+                                removed += 1
+                                continue
+                        except Exception:
+                            pass
+                        keep.append(line)
+                public.writeFile(path, ''.join(keep))
+                os.system('chown www:www {} 2>/dev/null'.format(path))
             except Exception:
                 pass
-        public.WriteLog('WAF Pro', 'Cleared {} WAF log file(s)'.format(removed))
-        return public.returnMsg(True, 'Cleared {} log file(s)'.format(removed))
+        what = 'record(s) of ' + site if site else 'log file(s)'
+        public.WriteLog('WAF Pro', 'Cleared {} WAF {}'.format(removed, what))
+        return public.returnMsg(True, 'Cleared {} {}'.format(removed, what))
 
     def rule_hits(self, get):
         '''Rule hit record: how often each filter fired, per site — counted
@@ -1732,7 +1884,8 @@ h1{margin:0 0 8px;font-size:19px}p{margin:0;color:#5c6470}
                      'ip': rec.get('ip', ''), 'method': rec.get('method', ''),
                      'url': rec.get('uri', ''), 'ua': rec.get('ua', ''),
                      'type': rec.get('rule', ''), 'rule': rec.get('payload', ''),
-                     'site': rec.get('site', ''), 'status': rec.get('status', 0)}
+                     'site': rec.get('site', ''), 'status': rec.get('status', 0),
+                     'rx': rec.get('rx', '')}
                 if site and r['site'] != site:
                     continue
                 if f_ip and f_ip not in r['ip']:
@@ -1766,7 +1919,7 @@ h1{margin:0 0 8px;font-size:19px}p{margin:0;color:#5c6470}
         page = out[(p - 1) * size: p * size]
         for r in page:  # escape once, on output
             for k in ('ip', 'method', 'url', 'ua', 'type', 'rule', 'site',
-                      'location', 'filter_name'):
+                      'location', 'filter_name', 'rx'):
                 r[k] = html.escape(str(r[k]), True)
         types = sorted({r['type'] for r in out})
         return {'status': True, 'total': total, 'p': p, 'size': size,
