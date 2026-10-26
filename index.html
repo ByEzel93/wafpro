@@ -7,8 +7,8 @@
    Modules: static/js/core.js (helpers, router), pages/*.js (one per tab),
    shared.js, app.js (boot). ?v= busts the browser cache on upgrade. */
 (function () {
-  var V = '2.1', BASE = '/wafpro/static/';
-  var FILES = ["js/core.js", "js/pages/blockade.js", "js/pages/lists.js", "js/pages/rules.js", "js/pages/overview.js", "js/pages/website.js", "js/pages/region.js", "js/pages/traffic.js", "js/pages/attackmap.js", "js/pages/report.js", "js/pages/global.js", "js/pages/webshell.js", "js/shared.js", "js/app.js"];
+  var V = '2.2', BASE = '/wafpro/static/';
+  var FILES = ["js/core.js", "js/pages/blockade.js", "js/pages/lists.js", "js/pages/rules.js", "js/pages/exclusive.js", "js/pages/overview.js", "js/pages/website.js", "js/pages/region.js", "js/pages/traffic.js", "js/pages/attackmap.js", "js/pages/report.js", "js/pages/global.js", "js/pages/webshell.js", "js/shared.js", "js/app.js"];
   // one stylesheet per page; swap its href when the plugin was upgraded
   var l = document.getElementById('wafpro-css');
   if (!l) {

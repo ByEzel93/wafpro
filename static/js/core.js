@@ -2,6 +2,7 @@
   // generated wiring: names declared in other modules
   function pageAttackMap() { return W.pageAttackMap.apply(this, arguments); }
   function pageBlockade() { return W.pageBlockade.apply(this, arguments); }
+  function pageExclusive() { return W.pageExclusive.apply(this, arguments); }
   function pageGlobal() { return W.pageGlobal.apply(this, arguments); }
   function pageLists() { return W.pageLists.apply(this, arguments); }
   function pageOverview() { return W.pageOverview.apply(this, arguments); }
@@ -128,6 +129,7 @@
     { id: 'region', t: 'Region' },
     { id: 'traffic', t: 'Traffic Limit' },
     { id: 'rules', t: 'Custom rules' },
+    { id: 'exclusive', t: 'Exclusive Rules' },
     { id: 'webshell', t: 'Webshell' },
     { id: 'attackmap', t: 'Attack Map' },
     { id: 'report', t: 'Report' },
@@ -159,6 +161,7 @@
     if (S.tab === 'blockade') return pageBlockade();
     if (S.tab === 'lists') return pageLists();
     if (S.tab === 'rules') return pageRules();
+    if (S.tab === 'exclusive') return pageExclusive();
     if (S.tab === 'region') return pageRegion();
     if (S.tab === 'traffic') return pageTraffic();
     if (S.tab === 'attackmap') return pageAttackMap();

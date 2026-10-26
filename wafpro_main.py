@@ -2438,6 +2438,28 @@ p{margin:0;color:#606266}
              'open': bool(x.get('open'))}
             for i, x in enumerate(data)]}
 
+    def exclusive_rules(self, get):
+        '''Exclusive Rules tab: the N-day virtual patches, the global switch
+        that gates them, and how often each fired (from the block log).'''
+        hits = {}
+        for _s, path in self._log_files('', 'all'):
+            try:
+                with open(path, 'r', errors='ignore') as fh:
+                    for line in fh:
+                        if '"rule":"nday"' not in line:
+                            continue
+                        try:
+                            rx = json.loads(line).get('rx', '')
+                        except Exception:
+                            continue
+                        hits[rx] = hits.get(rx, 0) + 1
+            except Exception:
+                continue
+        rows = [{'index': i, 'id': 10001 + i, 'rule': x.get('rule', ''), 'ps': x.get('ps', ''),
+                 'open': bool(x.get('open')), 'hits': hits.get(x.get('rule', ''), 0)}
+                for i, x in enumerate(self._rule_set('nday'))]
+        return {'status': True, 'data': rows, 'enabled': bool(self._config().get('m_nday', True))}
+
     def rule_add(self, get):
         name = getattr(get, 'rule_name', '')
         if name not in self.RULE_NAMES:
