@@ -7,7 +7,7 @@ enginePath=/www/server/wafpro
 vhostPath=/www/server/panel/vhost/nginx
 logPath=/www/wwwlogs/wafpro
 geoDb=/www/server/panel/data/firewall/GeoLite2-Country.json
-engineFiles="wafpro.lua init.lua worker.lua waf.lua header.lua body.lua"
+engineFiles="wafpro.lua detect.lua init.lua worker.lua waf.lua header.lua body.lua"
 
 # Re-render every engine file from the panel's settings. Needed on update:
 # a new engine may read a new rule format (2.1 switched sites.txt to named

@@ -28,6 +28,10 @@ local concat = table.concat
 
 local state = { version = -1 }
 
+-- semantic detectors (detect.lua); the engine runs without them if missing
+local has_detect, detect = pcall(require, 'detect')
+if not has_detect then detect = nil end
+
 -- CC counting skips these: a page pulls dozens of them and they are not the
 -- attack surface. Matches btwaf's default static exemption.
 local STATIC_EXT = {
@@ -328,7 +332,8 @@ local function parse_site_rules(path)
         if typ and site and site ~= '' then
             local s = out[site]
             if not s then
-                s = { dpath = {}, leech = {}, purl = {}, api = {}, repl = {} }
+                s = { dpath = {}, leech = {}, purl = {}, api = {}, repl = {},
+                      ucc = {}, uverify = {}, vwhite = {}, umethod = {} }
                 out[site] = s
             end
             if typ == 'dpath' then
@@ -346,6 +351,16 @@ local function parse_site_rules(path)
             elseif typ == 'repl' then
                 local from = pdec(f[3])
                 if from ~= '' then s.repl[#s.repl + 1] = { from = from, to = pdec(f[4]) } end
+            elseif typ == 'ucc' then          -- URL CC defense: path|limit|cycle
+                s.ucc[#s.ucc + 1] = { id = #s.ucc + 1, path = pdec(f[3]),
+                                      limit = tonumber(f[4]) or 30, cycle = tonumber(f[5]) or 60 }
+            elseif typ == 'uverify' then      -- URL enhancement mode: path
+                s.uverify[#s.uverify + 1] = pdec(f[3])
+            elseif typ == 'vwhite' then       -- machine verification whitelist: path
+                s.vwhite[#s.vwhite + 1] = pdec(f[3])
+            elseif typ == 'umethod' then      -- URL request type: path|allow/refuse|methods
+                s.umethod[#s.umethod + 1] = { path = pdec(f[3]), allow = f[4] == 'allow',
+                                              methods = parse_set(pdec(f[5])) }
             end
         end
     end
@@ -506,6 +521,9 @@ local function apply_globals(sites, cfg)
         end
         if cfg.browser_all == true then sc.browser = true end
         if cfg.form_all == true then sc.form_strict = true end
+        -- malicious upload / download defense switches
+        if cfg.m_upload == false then sc.upload_ext = {} end
+        if cfg.m_download == false then sc.deny_ext = {} end
         if sc.body_max <= 0 and cfg.http_all == true then sc.body_max = tonumber(cfg.body_max_all) or 0 end
     end
 end
@@ -1093,6 +1111,7 @@ local function form_body(ctx)
     local ct = ngx.var.content_type or ''
     if not ct:find('application/x%-www%-form%-urlencoded') then return nil end
     local b = raw_body()
+    ctx.body_raw = b
     -- count fields on the raw body: a decoded value may contain '&'
     if b then local _, n = b:gsub('&', ''); ctx.body_fields = n + 1 end
     ctx.body = b and ngx.unescape_uri(b) or nil
@@ -1302,6 +1321,28 @@ local function host_in(h, list)
     return false
 end
 
+-- URL CC defense: a per-URL budget, checked before the URL whitelist gets a
+-- say (the stock WAF's priority) — a login or SMS endpoint can be whitelisted
+-- from the filters and still not be hammered
+local function url_cc_check(site, sr, path, ips, cfg)
+    local dict = ngx.shared.wafpro_cc
+    if not dict then return end
+    for i = 1, #sr.ucc do
+        local C = sr.ucc[i]
+        if match_any({ C.path }, path) then
+            local key = 'u:' .. site .. ':' .. C.id .. ':' .. ips
+            local n = dict:incr(key, 1)
+            if not n then dict:set(key, 1, C.cycle); n = 1 end
+            if n > C.limit then
+                dict:delete(key)
+                ban(ips, tonumber(cfg.cc_def_block) or 600, site, 'url-cc', n)
+                return deny(ips, site, 'url-cc', fmt('%s %d req / %ds (limit %d)', path, n, C.cycle, C.limit),
+                            tonumber(cfg.cc_status) or 444)
+            end
+        end
+    end
+end
+
 local function site_rules_check(site, sr, ctx, ips, cfg)
     local path = ctx.uri
 
@@ -1361,9 +1402,112 @@ local function site_rules_check(site, sr, ctx, ips, cfg)
         end
     end
 
+    -- URL request type: only these methods (allow) / never these (refuse)
+    for i = 1, #sr.umethod do
+        local U = sr.umethod[i]
+        if match_any({ U.path }, path) then
+            local m = (ctx.method or ''):lower()
+            if (U.allow and not U.methods[m]) or (not U.allow and U.methods[m]) then
+                return deny(ips, site, 'url-method', tostring(ctx.method) .. ' ' .. path,
+                            tonumber(cfg.method_status) or 405)
+            end
+        end
+    end
+
     -- content replace happens in the body filter; remember it for this request
     if #sr.repl > 0 then ngx.ctx.wafpro_repl = sr.repl end
 end
+
+-- error messages that leak internals (SQL errors, PHP fatals, stack traces)
+local LEAKS = { 'You have an error in your SQL syntax', 'Warning: mysql', 'Warning: mysqli', 'Warning: pg_',
+                'PDOException', 'SQLSTATE[', 'Fatal error: ', 'Parse error: ', 'Stack trace:',
+                'Uncaught Exception', 'ORA-0', 'Microsoft OLE DB', 'Unclosed quotation mark' }
+local function esc_pat(x) return (x:gsub('[%^%$%(%)%%%.%[%]%*%+%-%?]', '%%%0')) end
+
+-- does any pattern of a list match the path
+local function path_in(list, path)
+    return list and #list > 0 and match_any(list, path) ~= nil
+end
+
+-- ---------------- per-parameter semantic checks ----------------
+--
+-- Each parameter value is judged on its own (SQL / XSS / command syntax),
+-- never the whole query string: unrelated fields side by side are not an
+-- attack, and one field's quote must not "close" another's.
+
+local function each_value(t, fn)
+    for k, v in pairs(t or {}) do
+        if type(k) == 'string' then
+            local r1, r2 = fn(k, k)
+            if r1 then return r1, r2 end
+        end
+        if type(v) == 'table' then
+            for _, x in ipairs(v) do
+                if type(x) == 'string' then
+                    local r1, r2 = fn(k, x)
+                    if r1 then return r1, r2 end
+                end
+            end
+        elseif type(v) == 'string' then
+            local r1, r2 = fn(k, v)
+            if r1 then return r1, r2 end
+        end
+    end
+end
+
+-- string values of a JSON body, without a JSON library: every "..." literal
+local function json_strings(body)
+    local out, i, n = {}, 1, #body
+    while i <= n and #out < 500 do
+        local q = body:find('"', i, true)
+        if not q then break end
+        local j = q + 1
+        while j <= n do
+            local c = body:byte(j)
+            if c == 92 then j = j + 2 elseif c == 34 then break else j = j + 1 end
+        end
+        out[#out + 1] = body:sub(q + 1, j - 1)
+        i = j + 1
+    end
+    return out
+end
+
+local function semantic_check(ctx, kinds)
+    local function judge(k, v)
+        local kind, why = detect.check(v, kinds)
+        if kind then return kind, tostring(k) .. '=' .. v:sub(1, 120) .. ' (' .. why .. ')' end
+    end
+    local kind, why = each_value(ngx.req.get_uri_args(200), judge)
+    if kind then return kind, why end
+    local _ = form_body(ctx)
+    if ctx.body_raw then
+        kind, why = each_value(ngx.decode_args(ctx.body_raw, 300), judge)
+        if kind then return kind, why end
+    end
+    local jb = json_body(ctx)
+    if jb then
+        for _, v in ipairs(json_strings(jb)) do
+            kind, why = judge('json', v)
+            if kind then return kind, why end
+        end
+    end
+    local ck = ngx.var.http_cookie
+    if ck then
+        for name, val in ck:gmatch('([^=;%s]+)=([^;]*)') do
+            kind, why = judge(name, ngx.unescape_uri(val))
+            if kind then return kind, why end
+        end
+    end
+end
+
+-- weak password defense: a login form submitting one of the passwords every
+-- brute-force list starts with
+local WEAK = {}
+for w in ([[123456 password 12345678 qwerty 123456789 12345 1234 111111 1234567 admin admin123
+    123123 abc123 password1 root toor 000000 666666 888888 test test123 qwe123 1q2w3e4r 123qwe
+    letmein welcome iloveyou 1qaz2wsx administrator passw0rd]]):gmatch('%S+') do WEAK[w] = true end
+local PASS_FIELDS = { password = true, pass = true, pwd = true, passwd = true, user_pass = true,
+                      log_pass = true, login_password = true }
 
 function _M.access()
     local cfg = state.cfg
@@ -1428,6 +1572,9 @@ function _M.access()
     end
 
     local uri = ngx.var.request_uri or ngx.var.uri or ''
+
+    local sr = state.site_rules[site] or state.site_rules['*']
+    if sr and #sr.ucc > 0 then url_cc_check(site, sr, ngx.var.uri or '', ips, cfg) end
 
     -- explicit allow: skip every check below for this path
     if match_any(state.url_white, uri) then return end
@@ -1498,7 +1645,6 @@ function _M.access()
         end
     end
 
-    local sr = state.site_rules[site] or state.site_rules['*']
     if sr then site_rules_check(site, sr, ctx, ips, cfg) end
 
     -- extensions the site must never serve directly
@@ -1573,6 +1719,30 @@ function _M.access()
             if b then hit = match_any(state.r_nday, b) end
         end
         if hit then return deny(ips, site, 'nday', hit, tonumber(cfg.get_status) or 403) end
+    end
+
+    -- semantic analysis (SQL / XSS / command / file paths), per parameter
+    if detect and (cfg.m_sqli == true or cfg.m_xss == true or cfg.m_rce == true) then
+        local kinds = { sqli = cfg.m_sqli == true, xss = cfg.m_xss == true,
+                        cmdi = cfg.m_rce == true, lfi = cfg.m_rce == true }
+        local kind, why = semantic_check(ctx, kinds)
+        if kind then
+            local st = { sqli = cfg.sqli_status, xss = cfg.xss_status, cmdi = cfg.rce_status, lfi = cfg.rce_status }
+            return deny(ips, site, kind, why, tonumber(st[kind]) or 403)
+        end
+    end
+
+    -- weak password defense
+    if cfg.weak_pass == true and ctx.method == 'POST' then
+        local _ = form_body(ctx)
+        if ctx.body_raw then
+            local args = ngx.decode_args(ctx.body_raw, 100)
+            for k, v in pairs(args) do
+                if PASS_FIELDS[tostring(k):lower()] and type(v) == 'string' and WEAK[v:lower()] then
+                    return deny(ips, site, 'weak-password', 'login with a common password', 403)
+                end
+            end
+        end
     end
 
     -- query string
@@ -1670,6 +1840,10 @@ function _M.access()
         if hit then return deny(ips, site, 'sensitive', hit, tonumber(cfg.black_status) or 444) end
     end
 
+    -- response-phase work for this request (header/body filters read these)
+    if cfg.info_leak == true and not is_static(ctx.uri) then ngx.ctx.wafpro_leak = true end
+    if cfg.dirscan == true then ngx.ctx.wafpro_ip = ips; ngx.ctx.wafpro_site = site end
+
     -- WebSocket upgrades are long-lived and reconnect in bursts after a deploy;
     -- they went through every filter above, but must not eat the CC budget.
     local up = ngx.var.http_upgrade
@@ -1679,8 +1853,12 @@ function _M.access()
 
     -- non-browser: page loads must prove they run JavaScript. Verified search
     -- crawlers returned earlier; assets and API calls are not challenged.
-    if sc.browser and not static and wants_html() and not verified(ips, ua) then
-        return challenge(ips, site, ua, 'browser verification')
+    local vpath = ctx.uri
+    local exempt = sr and path_in(sr.vwhite, vpath)
+    if not static and not exempt and wants_html() and not verified(ips, ua) then
+        if sc.browser then return challenge(ips, site, ua, 'browser verification') end
+        -- URL enhancement mode: these pages always need the browser check
+        if sr and path_in(sr.uverify, vpath) then return challenge(ips, site, ua, 'url verification') end
     end
 
     -- rate-driven checks last: only clean requests count toward them.
@@ -1715,7 +1893,7 @@ function _M.access()
             if verified(ips, ua) then
                 local saved = sc.cc_limit
                 sc = setmetatable({ cc_limit = saved * 4 }, { __index = sc })
-            elseif wants_html() then
+            elseif wants_html() and not exempt then
                 local dict = ngx.shared.wafpro_cc
                 local n = dict and dict:get(ips .. '|' .. site) or 0
                 if n >= sc.cc_limit then
@@ -1736,14 +1914,34 @@ end
 -- only on uncompressed HTML: everything else streams through untouched, so
 -- SSE / SSR streaming / downloads are never buffered.
 
+-- Directory scan defense: a client collecting 404s (probing for files that
+-- do not exist) faster than dirscan_count per dirscan_time is banned.
+local function dirscan_count()
+    local ip = ngx.ctx.wafpro_ip
+    if not ip or ngx.status ~= 404 then return end
+    local cfg = state.cfg or {}
+    local dict = ngx.shared.wafpro_cc
+    if not dict then return end
+    local key = 'd:' .. ip
+    local n = dict:incr(key, 1)
+    if not n then dict:set(key, 1, tonumber(cfg.dirscan_time) or 60); n = 1 end
+    if n > (tonumber(cfg.dirscan_count) or 120) then
+        dict:delete(key)
+        ban(ip, tonumber(cfg.retry_time) or 600, ngx.ctx.wafpro_site or '', 'dir-scan', n)
+        log_block(ip, ngx.ctx.wafpro_site or '', 'dir-scan', n .. ' not-found responses', 404)
+    end
+end
+
 function _M.header_filter()
+    dirscan_count()
     local repl = ngx.ctx.wafpro_repl
-    if not repl then return end
+    if not repl and not ngx.ctx.wafpro_leak then return end
     local ct = ngx.header['Content-Type'] or ''
     if type(ct) == 'table' then ct = ct[1] or '' end
     local enc = ngx.header['Content-Encoding']
     if not ct:lower():find('text/html', 1, true) or (enc and enc ~= '' and enc ~= 'identity') then
         ngx.ctx.wafpro_repl = nil
+        ngx.ctx.wafpro_leak = nil
         return
     end
     -- the body length changes, so the upstream's length no longer applies
@@ -1772,7 +1970,14 @@ function _M.body_filter()
         return
     end
     local body = concat(buf)
-    for _, r in ipairs(ngx.ctx.wafpro_repl) do
+    if ngx.ctx.wafpro_leak then
+        for _, sig in ipairs(LEAKS) do
+            if body:find(sig, 1, true) then
+                body = body:gsub(esc_pat(sig) .. '[^<\n]*', '[error details hidden by the firewall]')
+            end
+        end
+    end
+    for _, r in ipairs(ngx.ctx.wafpro_repl or {}) do
         local from, to, out, pos = r.from, r.to, {}, 1
         while true do
             local s, e = body:find(from, pos, true)

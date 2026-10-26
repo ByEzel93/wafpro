@@ -32,14 +32,15 @@
     });
   }
 
-  /* ---------------- Global: one table, like the stock WAF ----------------
-     Name | Description | Resp | Status | OPT. A protection runs only when its
-     switch here AND the site's own switch (WebSite > Modify) are on; a few
-     rows (Non-browser, From-data, HTTP package) switch a protection on for
-     every site instead. OPT opens the row's settings. */
-  var RESP_CODES = [[200, '(200) Normal'], [404, '(404) File does not exist'], [403, '(403) Access denied'],
-                    [444, '(444) Close connection'], [500, '(500) Application error'],
-                    [502, '(502) Connection timed out'], [503, '(503) Server unavailable']];
+  /* ---------------- Global: the stock WAF's settings page ----------------
+     Sub tabs (All, CC defense, Access filter, Website vulnerability
+     defense, Sensitive words) jump to their section and follow the scroll.
+     Each card: title + switch on top, description + "Status [code]" picker
+     and buttons below. A protection runs only when its card is on here AND
+     the website has it on (WebSite > Modify). */
+  var RESP_CODES = [[200, '200 Normal access'], [404, '404 File not exist'], [403, '403 Access denied'],
+                    [444, '444 Close connection'], [500, '500 Application error'],
+                    [502, '502 Connection timed out'], [503, '503 Server is unavailable']];
 
   function saveCfg(patch, done) {
     post('save_config', { config: JSON.stringify(patch) }, function (rr) {
@@ -48,131 +49,225 @@
     });
   }
 
-  // the rows; resp = config key of the response code, sw = config key of the
-  // switch (or a function for the special ones), ops = OPT buttons
-  function globalRows(c, extra) {
+  var G_SECTIONS = [['all', 'Global'], ['cc', 'CC defense'], ['filter', 'Access filter'],
+                    ['site', 'Website vulnerability defense'], ['sensitive', 'Sensitive words']];
+
+  // cards per section. sw: config key (or {get, set} for special switches),
+  // st: config key of the response code, btns: [[label, action, primary?]]
+  function globalCards(c, extra) {
     var mal = extra.mal || {}, sp = extra.sp || {}, idc = extra.idc || {};
-    return [
-      { name: 'CC defense', desc: 'Defense against CC attacks. The initial rule is what a new site starts with.',
-        resp: 'cc_status', sw: 'm_cc', ops: [['Initial rule', ccRuleDialog]] },
-      { name: 'Request defense', desc: 'Malicious request blocking threshold: an IP that trips too many rules is banned for a while.',
-        resp: 'black_status', sw: function (on) { saveCfg({ retry: on ? (c.retry || 6) : 0 }, route); }, on: c.retry > 0,
-        ops: [['Initial rule', toleranceDialog]] },
-      { name: 'IP whitelist', desc: 'All rules are invalid for the IP whitelist.', ops: [['Conf', gotoList('ip_white')]] },
-      { name: 'IP blacklist', desc: 'Ban access to the IP of all websites.', resp: 'black_status', ops: [['Conf', gotoList('ip_black')]] },
-      { name: 'URL whitelist', desc: 'Most rules are invalid for URL whitelist.', ops: [['Conf', gotoList('url_white')]] },
-      { name: 'URL blacklist', desc: 'Prohibit access to the specified URL.', resp: 'black_status', ops: [['Conf', gotoList('url_black')]] },
-      { name: 'UA whitelist', desc: 'User-Agent whitelist in the initialization phase.', ops: [['Conf', gotoList('ua_white')]] },
-      { name: 'UA blacklist', desc: 'User-Agent blacklist in the initialization phase.', resp: 'ua_status', ops: [['Conf', gotoList('ua_black')]] },
-      { name: 'Spider pond', desc: 'Verified search-crawler IPs from the crawlers\' own published lists' +
-          (sp.have ? ' (' + num(sp.count) + ' ranges).' : ' — not downloaded yet.'),
-        sw: 'm_spider', ops: [['Conf', spiderDialog], ['Sync', function () { syncList('spider_update'); }]] },
-      { name: 'Non-browser', desc: 'Intercept non-browser requests, this switch will apply to all websites.',
-        sw: 'browser_all' },
-      { name: 'HTTP filter', desc: 'Request type filtering / request header filtering / request shape limits.',
-        resp: 'method_status', ops: [['Conf', function () { httpFilterDialog(extra.methods, extra.hdr); }]] },
-      { name: 'GET-param filter', desc: 'SQL injection and XSS attacks in the URI and URI parameters.',
-        resp: 'get_status', sw: 'm_get', ops: [['Rule', function () { ruleSetDialog('get'); }], ['Resp', blockPage]] },
-      { name: 'UA filter', desc: 'Usually used to filter browsers, spiders and some automatic scanners.',
-        resp: 'ua_status', sw: 'm_ua', ops: [['Rule', function () { ruleSetDialog('ua'); }], ['Resp', blockPage]] },
-      { name: 'POST filter', desc: 'Filter common SQL injection and XSS attacks in POST parameters (form and JSON).',
-        resp: 'post_status', sw: 'm_post', ops: [['Rule', function () { ruleSetDialog('post'); }], ['Resp', blockPage]] },
-      { name: 'Cookie filter', desc: 'Filter penetration attacks initiated by cookies.',
-        resp: 'cookie_status', sw: 'm_cookie', ops: [['Rule', function () { ruleSetDialog('cookie'); }], ['Resp', blockPage]] },
-      { name: 'Scanner', desc: 'Filter penetration testing of common scan testing tools.',
-        resp: 'scan_status', sw: 'm_scan', ops: [['Conf', function () { ruleSetDialog('scan'); }]] },
-      { name: 'N-day exploits', desc: 'Virtual patches for public CVEs (PHP-CGI, ThinkPHP, PHPUnit, Ignition, Spring, Struts, F5...).',
-        resp: 'get_status', sw: 'm_nday', ops: [['Conf', function () { ruleSetDialog('nday'); }]] },
-      { name: 'From-data', desc: 'Form-data protocol parameter transfer specification, applied to all websites.',
-        resp: 'php2shell_status', sw: 'form_all' },
-      { name: 'PHP2Shell guard', desc: 'Known triggers of CVE-2026-109618/109619 in PHP uploads. Updating PHP is the real fix.',
-        resp: 'php2shell_status', sw: 'm_php2shell', ops: [['Conf', function () { php2shellDialog(c); }]] },
-      { name: 'HTTP package', desc: 'Block oversized request bodies (uploads excluded) on every website.',
-        resp: 'header_status', sw: 'http_all', ops: [['Conf', function () { httpPackageDialog(c); }]] },
-      { name: 'Content replace', desc: 'Replace set sensitive text in the pages of every website.',
-        ops: [['Conf', function () { W.siteRules('*', 'repl'); }]] },
-      { name: 'URL keyword', desc: 'Intercept illegal words from the URL.', resp: 'black_status',
-        ops: [['Conf', gotoList('url_keyword')]] },
-      { name: 'Illegal word', desc: 'Block words or phrases in the URL and request body.', resp: 'black_status',
-        ops: [['Conf', function () { wordListDialog('sensitive', 'Illegal word block', 'Illegal word or regex'); }]] },
-      { name: 'API defense', desc: 'API interface defense: allowed methods and per-IP rate for API paths, on every website.',
-        ops: [['Conf', function () { W.siteRules('*', 'api'); }]] },
-      { name: 'Malicious IP feed', desc: 'Public abuse feeds (botnets, repeat attackers)' +
-          (mal.have ? ' — ' + num(mal.count) + ' ranges, updated ' + esc(mal.updated) + '.' : ' — not downloaded yet.'),
-        resp: 'black_status', sw: function (on, $cb) {
-          post('malicious_toggle', { open: on ? 1 : 0 }, function (rr) {
-            layer.msg(rr.msg, { icon: rr.status ? 1 : 2 }); if (!rr.status) $cb.prop('checked', !on);
-          });
-        }, on: !!mal.open, ops: [['Sync', function () { syncList('malicious_update'); }]] },
-      { name: 'IDC list', desc: 'Cloud / datacenter address space for the per-site IDC interception switch' +
-          (idc.have ? ' — ' + num(idc.count) + ' ranges.' : ' — not downloaded yet.'),
-        ops: [['Sync', function () { syncList('idc_update'); }]] },
-      { name: 'Static file protection', desc: 'Count static files (JS, CSS, images) toward CC. Off by default — a page pulls many.',
-        sw: 'static_protect' },
-      { name: 'Block page', desc: 'The page a blocked visitor sees for 4xx responses, and the browser check page.',
-        sw: 'block_page', ops: [['Resp', blockPage], ['Check page', function () { pageEditor('challenge'); }]] },
-      { name: 'Logging', desc: 'Write blocks to /www/wwwlogs/wafpro/, kept for ' + (c.log_save || 30) + ' days.',
-        sw: 'log', ops: [['Conf', function () { logDialog(c); }]] }
-    ];
+    var rules = function (set) { return function () { ruleSetDialog(set); }; };
+    var resp = ['Response content', blockPage];
+    return {
+      cc: [
+        { t: 'CC defense', d: 'Defense against CC attacks, please adjust the specific defense parameters in the site configuration',
+          sw: 'm_cc', st: 'cc_status', btns: [['Set rule', ccRuleDialog, 1]] },
+        { t: 'Request defence', d: 'Malicious request blocking threshold.', btns: [['Set rule', toleranceDialog, 1]] },
+        { t: 'Static file protection', d: 'CC protection by default will not protect: JS, CSS, GIF, JPG, JPEG, PNG, these static ' +
+          'files, if it is not brushed image traffic is not recommended to always open.', sw: 'static_protect' },
+        { t: 'Malicious IP library', d: 'Block known malicious IPs from public feeds (ipsum, blocklist.de, Spamhaus DROP, Feodo)' +
+          (mal.have ? ' — ' + num(mal.count) + ' ranges, updated ' + esc(mal.updated) : ' — click Synchronize to download'),
+          sw: { on: !!mal.open, set: function (on, $cb) {
+            post('malicious_toggle', { open: on ? 1 : 0 }, function (rr) {
+              layer.msg(rr.msg, { icon: rr.status ? 1 : 2 }); if (!rr.status) $cb.prop('checked', !on);
+            }); } },
+          btns: [['Synchronize', function () { syncList('malicious_update'); }]] },
+        { t: 'URL CC defense', d: 'URL defense CC rule, priority is higher than URL whitelist',
+          btns: [['Set', function () { W.siteRules('*', 'ucc', true); }, 1]] },
+        { t: 'URL enhancement mode', d: 'Setting up a URL validation rule independently',
+          btns: [['Set', function () { W.siteRules('*', 'uverify', true); }, 1]] },
+        { t: 'Machine verification whitelist', d: 'Use when you need to not validate certain pages when enabling human authentication',
+          btns: [['Set', function () { W.siteRules('*', 'vwhite', true); }, 1]] }
+      ],
+      filter: [
+        { t: 'Non-browser interception', d: 'Can defend against crawler attacks and non-browser access. Currently, it will be ' +
+          'applied to all websites. If the website has CDN enabled, it is recommended to turn on CDN for the site first.',
+          sw: 'browser_all' },
+        { t: 'HTTP request filtering', d: 'HTTP request type filtering/request header filtering/request quantity filtering',
+          btns: [['Set', function () { httpFilterDialog(extra.methods, extra.hdr); }, 1]] },
+        { t: 'URL request type interception', d: 'Set URL interception request type separately',
+          btns: [['Set', function () { W.siteRules('*', 'umethod', true); }, 1]] },
+        { t: 'API interface defense', d: 'When some interfaces are in the whitelist, one of them needs to be used under CC defense',
+          btns: [['Set', function () { W.siteRules('*', 'api', true); }, 1]] },
+        { t: 'Spider pond', d: 'By default, all major search engine spiders are allowed to crawl' +
+          (sp.have ? ' — ' + num(sp.count) + ' verified crawler ranges' : ' — click Synchronize to download the crawler IP lists'),
+          btns: [['Synchronize', function () { syncList('spider_update'); }]] },
+        { t: 'IDC interception list', d: 'Cloud / datacenter address space used by the per-site IDC interception switch' +
+          (idc.have ? ' — ' + num(idc.count) + ' ranges' : ' — click Synchronize to download'),
+          btns: [['Synchronize', function () { syncList('idc_update'); }]] },
+        { t: 'HTTP package', d: 'Block oversized request bodies (uploads excluded) on every website without its own limit.',
+          sw: 'http_all', st: 'header_status', btns: [['Set', function () { httpPackageDialog(c); }, 1]] }
+      ],
+      site: [
+        { t: 'SQL injection defense', d: 'Detect malicious SQL statements and prevent malicious tampering of the database due to SQL injection',
+          n: 'Semantic analysis per parameter. If the content published on your website contains SQL statements, enabling this defense may block publishing.',
+          sw: 'm_sqli', st: 'sqli_status', btns: [resp] },
+        { t: 'XSS Defense', d: 'Detect XSS syntax to prevent web pages from being maliciously tampered with, user information leaked, and permissions stolen',
+          n: 'If the content published on your website contains javascript tutorials, enabling this defense may block publishing.',
+          sw: 'm_xss', st: 'xss_status', btns: [resp] },
+        { t: 'Command Execution Interception', d: 'Determine and block the execution of potentially dangerous commands and file ' +
+          'access through the syntax model, preventing hackers from invading the server', sw: 'm_rce', st: 'rce_status' },
+        { t: 'Weak password defense', d: 'Real-time detection of weak password login and interception', sw: 'weak_pass' },
+        { t: 'Sensitive information detection', d: 'Intercept sensitive information in error messages, including SQL errors, PHP errors, etc.',
+          sw: 'info_leak' },
+        { t: 'GET filter', d: 'Regex rules for SQL injection, XSS, traversal and code execution in the URI and its parameters',
+          sw: 'm_get', st: 'get_status', btns: [['Rule', rules('get')], resp] },
+        { t: 'POST filter', d: 'Regex rules for attacks in form and JSON request bodies', sw: 'm_post', st: 'post_status',
+          btns: [['Rule', rules('post')], resp] },
+        { t: 'Malicious file upload defense', d: 'Detect malicious file uploads, prevent Trojans from being uploaded, and prevent server permissions from being lost',
+          n: 'If you upload a file with the keyword php in the file name, enabling this defense may block it.',
+          sw: 'm_upload', st: 'post_status', btns: [resp] },
+        { t: 'PHP2Shell guard', d: 'Block the known triggers of CVE-2026-109618/109619 in PHP uploads. Updating PHP is the real fix.',
+          sw: 'm_php2shell', st: 'php2shell_status', btns: [['Set', function () { php2shellDialog(c); }, 1]] },
+        { t: 'From-data protocol', d: 'From-data is the default format for file uploads, and the firewall only trusts the default ' +
+          'format. Turning this on rejects malformed upload bodies on every website.', sw: 'form_all' },
+        { t: 'Malicious Download Defense', d: 'Detect malicious downloads and prevent backup files, source code, and other critical data from being downloaded',
+          n: 'Uses each website\'s forbidden extensions (WebSite › Modify).', sw: 'm_download', st: 'black_status', btns: [resp] },
+        { t: 'Custom rule interception', d: 'Detect known exploits (PHP code execution, framework RCE, SSRF probes) with editable rules',
+          sw: 'm_nday', st: 'get_status', btns: [['Rule', rules('nday')], resp] },
+        { t: 'Malicious crawler defense', d: 'Detect malicious crawlers and prevent malicious crawlers from accessing the website',
+          n: 'If your website needs to be included in the search engine, be sure not to add the search engine features.',
+          sw: 'm_ua', st: 'ua_status', btns: [['Rule', rules('ua')], resp] },
+        { t: 'Malicious Cookie Defense', d: 'Detect whether the cookie contains malicious code, SQL injection, XSS attack',
+          sw: 'm_cookie', st: 'cookie_status', btns: [['Rule', rules('cookie')], resp] },
+        { t: 'Malicious Scanner Defense', d: 'Detect malicious scanners, prevent all kinds of scanners, Trojan connection tools, and access to the website',
+          n: 'If your website is doing security testing, it may be blocked.',
+          sw: 'm_scan', st: 'scan_status', btns: [['Set', rules('scan'), 1]] },
+        { t: 'Directory Scan Defense', d: 'Prevent directory/file scanning, and perform statistical interception through the 404 status code of the access.',
+          n: 'If your webpage has many 404 images, it may cause access to be blocked.',
+          sw: 'dirscan', btns: [['Set', function () { dirscanDialog(c); }, 1]] },
+        { t: 'Trojan detection', d: 'Webshell inspection of the website files. The results are on the Webshell page.',
+          btns: [['Set', function () { S.tab = 'webshell'; W.renderTabs(); route(); }, 1]] },
+        { t: 'Logging', d: 'Write intercepted requests to /www/wwwlogs/wafpro/, kept for ' + (c.log_save || 30) + ' days.',
+          sw: 'log', btns: [['Set', function () { logDialog(c); }, 1]] }
+      ],
+      sensitive: [
+        { t: 'Sensitive text replacement', d: 'Replace the set sensitive text in the pages of every website.',
+          btns: [['Set', function () { W.siteRules('*', 'repl', true); }, 1]] },
+        { t: 'URL keyword interception', d: 'Intercept keywords from URL',
+          btns: [['Set', function () { wordListDialog('url_keyword', 'URL keyword interception', 'For example: find.zip'); }, 1]] },
+        { t: 'Banned words', d: 'Banned banned words or phrases in text',
+          btns: [['Set', function () { wordListDialog('sensitive', 'Banned words', 'Illegal word'); }, 1]] }
+      ]
+    };
+  }
+
+  function stSel(key, val) {
+    return '<span class="wp-st" data-key="' + key + '">Status [' + (val || '-') + ']<i></i></span>';
   }
 
   function renderGlobal(c, m, hl, sp, ml, senList) {
     var e = c.engine || {};
-    var rows = globalRows(c, { mal: ml, sp: sp, idc: S.idcStatus, methods: m, hdr: hl });
-    S.gRows = rows;
+    var cards = globalCards(c, { mal: ml, sp: sp, idc: S.idcStatus, methods: m, hdr: hl });
+    var all = [];
+    function card(x) {
+      var i = all.push(x) - 1, on = false;
+      if (x.sw && typeof x.sw === 'object') on = x.sw.on;
+      else if (x.sw) on = c[x.sw] === true;
+      return '<div class="wp-sc" data-i="' + i + '">' +
+        '<div class="wp-sc-top"><div class="wp-sc-t">' + esc(x.t) + '</div>' +
+          (x.sw ? '<label class="wp-sw"><input type="checkbox" class="wp-sc-sw"' + (on ? ' checked' : '') + '><span class="sl"></span></label>' : '') +
+        '</div>' +
+        '<div class="wp-sc-bot"><div class="wp-sc-d">' + x.d + (x.n ? '<div class="wp-sc-n">' + esc(x.n) + '</div>' : '') + '</div>' +
+          '<div class="wp-sc-btns">' + (x.st ? stSel(x.st, c[x.st]) : '') +
+          (x.btns || []).map(function (b, j) {
+            return '<span class="wp-btn wp-sc-b' + (b[2] ? ' ghost' : '') + '" data-j="' + j + '">' + esc(b[0]) + '</span>';
+          }).join('') + '</div></div></div>';
+    }
 
-    var h = '<div class="wp-card wp-g-head">' +
-      '<div class="wp-g-item"><span class="wp-g-lbl">Firewall switch</span>' + sw('g-open', c.open) + '</div>' +
-      '<div class="wp-g-item"><span class="wp-g-lbl">Engine wired into nginx</span>' + sw('g-wired', e.wired) + '</div>' +
-      '<div class="wp-g-state">' + engineStatusText(e, c.health) + '</div>' +
-      '<div class="wp-g-acts">' +
-        (e.installed && !e.current ? '<span class="wp-btn primary" id="g-engine-update">Update engine</span>' : '') +
-        '<span class="wp-btn" id="g-export">Export</span><span class="wp-btn" id="g-import">Import</span>' +
-        '<span class="wp-btn" id="g-restore">Restore defaults</span></div></div>';
+    var h = '<div class="wp-g">';
+    h += '<div class="wp-g-tabs" id="g-tabs">' + G_SECTIONS.map(function (x) {
+      return '<span class="wp-g-tab' + (x[0] === 'all' ? ' on' : '') + '" data-g="' + x[0] + '">' + (x[0] === 'all' ? 'All' : x[1]) + '</span>';
+    }).join('') + '</div>';
 
-    h += '<div class="wp-card"><div class="wp-site-box"><table class="wp-site-tbl wp-g-tbl"><thead><tr>' +
-      '<th style="width:170px">Name</th><th>Description</th><th style="width:90px;text-align:center">Resp</th>' +
-      '<th style="width:80px;text-align:center">Status</th><th class="r" style="width:150px">OPT</th></tr></thead><tbody>' +
-      rows.map(function (r, i) {
-        var on = typeof r.sw === 'string' ? c[r.sw] === true : r.on;
-        return '<tr data-i="' + i + '"><td class="site">' + esc(r.name) + '</td>' +
-          '<td style="white-space:normal;color:#606266">' + r.desc + '</td>' +
-          '<td style="text-align:center">' + (r.resp ? '<span class="wp-lnk g-resp">' + (c[r.resp] || '-') + '</span>' : '<span style="color:#c0c4cc">--</span>') + '</td>' +
-          '<td style="text-align:center">' + (r.sw ? '<label class="wp-sw wp-sw-sm"><input type="checkbox" class="g-sw"' +
-            (on ? ' checked' : '') + '><span class="sl"></span></label>' : '<span style="color:#c0c4cc">--</span>') + '</td>' +
-          '<td class="r">' + (r.ops || []).map(function (o, j) {
-            return (j ? '<span class="sep"></span>' : '') + '<span class="wp-lnk g-op" data-j="' + j + '">' + o[0] + '</span>';
-          }).join('') + '</td></tr>';
-      }).join('') + '</tbody></table></div>' +
-      '<ul class="wp-site-tips">' +
-      '<li>Inheritance: the CC initial rule is what a new website starts with; use <b>Apply to all sites</b> in it to update existing ones.</li>' +
-      '<li>A protection runs only when it is on here <b>and</b> on the website (WebSite &rsaquo; Modify).</li>' +
-      '<li>Priority: IP whitelist &gt; IP blacklist &gt; UA whitelist &gt; UA blacklist &gt; URL whitelist &gt; URL blacklist &gt; ' +
-      'URL keyword &gt; Spider &gt; Region &gt; UA &gt; Scanner &gt; N-day &gt; GET &gt; Cookie &gt; POST &gt; Non-browser &gt; CC &gt; Traffic limit</li>' +
-      '</ul></div>';
+    // Global
+    h += '<div class="wp-g-sec" id="g-sec-all"><div class="wp-g-title">Global</div>' +
+      '<div class="wp-g-main' + (c.open ? '' : ' off') + '" id="g-main">' +
+        '<div class="wp-sc-top"><div class="wp-sc-t">Switch</div>' + sw('g-open', c.open) + '</div>' +
+        '<div class="wp-sc-bot"><div class="wp-sc-d">All protection will be ineffective when this switch is turned off</div>' +
+        '<div class="wp-sc-btns"><span class="wp-btn ghost" id="g-sim">Simulated attack</span>' +
+        '<span class="wp-btn ghost" id="g-export">Export</span><span class="wp-btn ghost" id="g-import">Import</span>' +
+        '<span class="wp-btn ghost" id="g-restore">Restore default config</span></div></div></div>' +
+      '<div class="wp-sc">' +
+        '<div class="wp-sc-top"><div class="wp-sc-t">Engine</div>' + sw('g-wired', e.wired) + '</div>' +
+        '<div class="wp-sc-bot"><div class="wp-sc-d">Wire the WAF Pro engine into nginx (tested with nginx -t, rolled back on failure).' +
+          '<div class="wp-sc-n" style="color:inherit">' + engineStatusText(e, c.health) + '</div></div>' +
+        '<div class="wp-sc-btns">' + (e.installed && !e.current ? '<span class="wp-btn ghost" id="g-engine-update">Update engine</span>' : '') +
+        '</div></div></div></div>';
+
+    G_SECTIONS.slice(1).forEach(function (sec) {
+      h += '<div class="wp-g-sec" id="g-sec-' + sec[0] + '"><div class="wp-g-title muted">' + sec[1] + '</div>' +
+        cards[sec[0]].map(card).join('') + '</div>';
+    });
+    h += '<ul class="wp-site-tips">' +
+      '<li>Inheritance: The global setting will automatically inherit the default value in the site configuration</li>' +
+      '<li>Priority: IP whitelist &gt; IP blacklist &gt; UA whitelist &gt; UA blacklist &gt; URL CC defense &gt; URL whitelist &gt; ' +
+      'URL blacklist &gt; URL keyword interception &gt; Spider &gt; Region &gt; Malicious crawler &gt; Scanner &gt; Custom rule &gt; ' +
+      'SQL injection / XSS &gt; GET &gt; Cookie &gt; POST &gt; Non-browser &gt; CC defense &gt; Traffic limit</li></ul>';
+    h += '</div>';
     $('#wp-body').html(h);
 
-    $('#wp-body').on('click', '.g-resp', function () {
-      var r = rows[$(this).closest('tr').data('i')];
-      respDialog(r.name, r.resp, c[r.resp]);
+    /* ---- sub tabs: jump to a section, follow the scroll ---- */
+    var $body = $('#wp-body');
+    function offsets() {
+      return G_SECTIONS.map(function (x) {
+        var el = document.getElementById('g-sec-' + x[0]);
+        return [x[0], el ? el.offsetTop - document.getElementById('g-tabs').offsetHeight - 20 : 0];
+      });
+    }
+    var jumping = false;
+    $('#g-tabs').on('click', '.wp-g-tab', function () {
+      var g = $(this).data('g');
+      $('#g-tabs .wp-g-tab').removeClass('on'); $(this).addClass('on');
+      var top = g === 'all' ? 0 : (offsets().filter(function (x) { return x[0] === g; })[0] || [0, 0])[1];
+      jumping = true;
+      $body.stop().animate({ scrollTop: top }, 300, function () { setTimeout(function () { jumping = false; }, 50); });
     });
-    $('#wp-body').on('change', '.g-sw', function () {
-      var r = rows[$(this).closest('tr').data('i')], on = this.checked;
-      if (typeof r.sw === 'function') return r.sw(on, $(this));
-      var p = {}; p[r.sw] = on;
-      saveCfg(p);
-      c[r.sw] = on;
-    });
-    $('#wp-body').on('click', '.g-op', function () {
-      var r = rows[$(this).closest('tr').data('i')];
-      r.ops[$(this).data('j')][1]();
+    $body.on('scroll.gtabs', function () {
+      if (jumping) return;
+      var y = $body.scrollTop() + 2, cur = 'all';
+      offsets().forEach(function (x) { if (x[1] <= y) cur = x[0]; });
+      $('#g-tabs .wp-g-tab').removeClass('on').filter('[data-g=' + cur + ']').addClass('on');
     });
 
-    $('#g-open').on('change', function () { saveCfg({ open: this.checked }); });
+    /* ---- card controls ---- */
+    $body.on('change', '.wp-sc-sw', function () {
+      var x = all[$(this).closest('.wp-sc').data('i')], on = this.checked;
+      if (typeof x.sw === 'object') return x.sw.set(on, $(this));
+      var p = {}; p[x.sw] = on; c[x.sw] = on;
+      saveCfg(p);
+    });
+    $body.on('click', '.wp-sc-b', function () {
+      var x = all[$(this).closest('.wp-sc').data('i')];
+      x.btns[$(this).data('j')][1]();
+    });
+    $body.on('click', '.wp-st', function (ev) {
+      ev.stopPropagation();
+      var $st = $(this), key = $st.data('key');
+      $('.wp-st-menu').remove();
+      var $m = $('<div class="wp-st-menu">' + RESP_CODES.map(function (r) {
+        return '<div class="wp-st-opt' + (+c[key] === r[0] ? ' on' : '') + '" data-v="' + r[0] + '">' + r[1] + '</div>';
+      }).join('') + '</div>').appendTo($st);
+      $m.on('click', '.wp-st-opt', function (e2) {
+        e2.stopPropagation();
+        var v = +$(this).data('v'), p = {};
+        p[key] = v; c[key] = v;
+        $m.remove();
+        saveCfg(p, function () { $('.wp-st[data-key=' + key + ']').html('Status [' + v + ']<i></i>'); });
+      });
+      $(document).one('click', function () { $m.remove(); });
+    });
+
+    $('#g-open').on('change', function () {
+      var on = this.checked;
+      $('#g-main').toggleClass('off', !on);
+      saveCfg({ open: on });
+    });
     $('#g-wired').on('change', function () {
       var on = this.checked;
       post('engine_wire', { open: on ? 1 : 0 }, function (rr) { layer.msg(rr.msg, { icon: rr.status ? 1 : 2 }); route(); });
     });
+    $('#g-sim').on('click', function () { selfTestDialog(''); });
     $('#g-engine-update').on('click', function () {
       var ld = layer.msg('Updating engine...', { icon: 16, time: 0, shade: 0.3 });
       post('engine_update', {}, function (rr) { layer.close(ld); layer.msg(rr.msg, { icon: rr.status ? 1 : 2 }); route(); });
@@ -196,11 +291,25 @@
       inp.click();
     });
     $('#g-restore').on('click', function () {
-      layer.confirm('Restore every WAF Pro setting to defaults? This cannot be undone.', { icon: 3, title: 'Restore defaults' }, function (i) {
-        layer.close(i);
-        post('restore_config', {}, function (rr) { layer.msg(rr.msg, { icon: rr.status ? 1 : 2 }); if (rr.status) route(); });
-      });
+      layer.confirm('All configurations will be cleared and restored to the default configuration, including URL black and white list, IP black and white list...',
+        { icon: 3, title: 'Restoring default configuration' }, function (i) {
+          layer.close(i);
+          post('restore_config', {}, function (rr) { layer.msg(rr.msg, { icon: rr.status ? 1 : 2 }); if (rr.status) route(); });
+        });
     });
+  }
+
+  function dirscanDialog(c) {
+    gDialog('Directory Scan Defense', 520,
+      fRow('Access time', nIn('ds-time', c.dirscan_time) + ' <span class="wp-unit">Sec</span>') +
+      fRow('Number of attacks', nIn('ds-count', c.dirscan_count) + ' <span class="wp-unit">404 responses</span>') +
+      '<ul class="wp-site-tips"><li>This interception is to defend against 404 links generated by accessing URLs: an IP collecting more ' +
+      '404 responses than the number above within the time above is banned.</li><li>The minimum cannot be less than 20 times in 20 seconds.</li></ul>',
+      function (close) {
+        var t = +$('#ds-time').val(), n = +$('#ds-count').val();
+        if (t < 20 || n < 20) return layer.msg('The minimum cannot be less than 20 times in 20 seconds', { icon: 2 });
+        saveCfg({ dirscan_time: t, dirscan_count: n }, close);
+      });
   }
 
   /* ---------------- row dialogs ---------------- */
@@ -561,7 +670,6 @@
   W.ccRuleDialog = ccRuleDialog;
   W.fRow = fRow;
   W.gDialog = gDialog;
-  W.globalRows = globalRows;
   W.gotoList = gotoList;
   W.httpFilterDialog = httpFilterDialog;
   W.httpPackageDialog = httpPackageDialog;
@@ -574,4 +682,8 @@
   W.syncList = syncList;
   W.toleranceDialog = toleranceDialog;
   W.wordListDialog = wordListDialog;
+  W.globalCards = globalCards;
+  W.stSel = stSel;
+  W.dirscanDialog = dirscanDialog;
+  W.G_SECTIONS = G_SECTIONS;
 })(window.WAFPRO = window.WAFPRO || {});

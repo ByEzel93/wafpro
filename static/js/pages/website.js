@@ -338,6 +338,25 @@
       show: function (x) { return [x.path, x.methods || 'any', x.per_min ? x.per_min : 'no limit']; },
       form: [['path', 'API path pattern (regex)', '^/api/'], ['methods', 'Allowed methods', 'GET,POST'],
              ['per_min', 'Requests per IP per minute (0 = no limit)', '120']] },
+    { k: 'ucc', t: 'URL CC defense',
+      note: 'Set CC defense for a single URL: more than Frequency requests from one IP within Cycle seconds bans the IP. ' +
+            'Checked before the URL whitelist. The recommended minimum is 30 times in 60 seconds.',
+      cols: ['URL', 'Frequency', 'Cycle'], show: function (x) { return [x.path, x.limit + ' Time(s)', x.cycle + ' Sec']; },
+      form: [['path', 'URL (regex, without parameters)', '^/login'], ['limit', 'Frequency', '30'], ['cycle', 'Cycle (seconds)', '60']] },
+    { k: 'uverify', t: 'URL enhancement mode',
+      note: 'Pages matching these URLs always require browser verification (JavaScript check), e.g. a register page: ' +
+            '<b>^/register\\.html</b>. Priority: Enhanced mode &gt; URL enhancement mode &gt; standard mode.',
+      cols: ['URL'], show: function (x) { return [x.path]; }, form: [['path', 'URL (regex)', '^/register']] },
+    { k: 'vwhite', t: 'Machine verification whitelist',
+      note: 'Pages matching these URLs are never asked for browser verification (Non-browser, CC enhanced mode). ' +
+            'E.g. <b>^/admin/update</b> or <b>^/admin/[1-99]</b>.',
+      cols: ['URL'], show: function (x) { return [x.path]; }, form: [['path', 'URL (regex)', '^/api/callback']] },
+    { k: 'umethod', t: 'URL request type interception',
+      note: 'Intercept: the URL does not allow these request types. Only release: the URL only allows these request types.',
+      cols: ['URL', 'Type', 'Request type'],
+      show: function (x) { return [x.path, x.mode === 'allow' ? 'Only release' : 'Intercept', x.methods]; },
+      form: [['path', 'URL (regex)', '^/admin/'], ['mode', 'Type', 'select:refuse=Intercept,allow=Only release'],
+             ['methods', 'Request types', 'POST,PUT']] },
     { k: 'repl', t: 'Content replace',
       note: 'Replaces text in HTML pages before they are sent (exact match, case-sensitive). Only uncompressed HTML from ' +
             'this server is rewritten; pages over 4 MB pass unchanged.',
@@ -345,7 +364,7 @@
       form: [['from', 'Text to find', 'old text'], ['to', 'Replace with', 'new text']] }
   ];
 
-  function siteRules(name, kind) {
+  function siteRules(name, kind, single) {
     post('site_rules_get', { siteName: name }, function (r) {
       if (!r.status) { layer.msg(r.msg || 'error', { icon: 2 }); return; }
       var cur = SR_KINDS.filter(function (x) { return x.k === kind; })[0] || SR_KINDS[0];
@@ -353,14 +372,20 @@
         '<div class="wp-mod-head"><div class="wp-mod-site">' + (name === '*' ? 'All sites' : esc(name)) + '</div>' +
         '<div class="wp-mod-meta">' + (name === '*' ? 'Global rules, applied to every website before its own rules' :
           esc((r.domains || []).join(', '))) + '</div></div>' +
-        '<div class="wp-subtabs">' + SR_KINDS.map(function (x) {
+        (single ? '' : '<div class="wp-subtabs">' + SR_KINDS.map(function (x) {
           var n = (r.data[x.k] || []).length;
           return '<span class="wp-subtab sr-tab' + (x.k === cur.k ? ' on' : '') + '" data-k="' + x.k + '">' +
             x.t + (n ? ' (' + n + ')' : '') + '</span>';
-        }).join('') + '</div>' +
+        }).join('') + '</div>') +
         '<div class="wp-mod-body">' +
         '<div class="wp-mod-sec"><div class="wp-mod-sec-t">Add</div>' +
         cur.form.map(function (f) {
+          if (String(f[2]).indexOf('select:') === 0) {
+            return modRow2(f[1], '<select class="wp-in" id="sr-f-' + f[0] + '" style="width:200px">' +
+              f[2].slice(7).split(',').map(function (o) {
+                var kv = o.split('='); return '<option value="' + kv[0] + '">' + esc(kv[1]) + '</option>';
+              }).join('') + '</select>', '');
+          }
           if (f[2] === 'checkbox') {
             return modRow2('', '<label style="display:flex;gap:8px;align-items:center;cursor:pointer">' +
               '<input type="checkbox" id="sr-f-' + f[0] + '" checked> ' + f[1] + '</label>', '');
@@ -383,7 +408,8 @@
       layer.closeAll('page');
       S.srSwitching = false;
       layer.open({
-        type: 1, title: name === '*' ? 'Global rules' : 'Site rules — ' + name, area: ['820px', '620px'], content: h,
+        type: 1, title: single ? cur.t : (name === '*' ? 'Global rules' : 'Site rules — ' + name),
+        area: [single ? '720px' : '820px', '600px'], content: h,
         success: function () {
           $('.sr-tab').on('click', function () { siteRules(name, $(this).data('k')); });
           $('#sr-add').on('click', function () {
@@ -394,13 +420,13 @@
             });
             post('site_rule_add', { siteName: name, kind: cur.k, data: JSON.stringify(d) }, function (rr) {
               layer.msg(rr.msg, { icon: rr.status ? 1 : 2 });
-              if (rr.status) siteRules(name, cur.k);
+              if (rr.status) siteRules(name, cur.k, single);
             });
           });
           $('.sr-del').on('click', function () {
             post('site_rule_del', { siteName: name, kind: cur.k, index: $(this).data('i') }, function (rr) {
               layer.msg(rr.msg, { icon: rr.status ? 1 : 2 });
-              if (rr.status) siteRules(name, cur.k);
+              if (rr.status) siteRules(name, cur.k, single);
             });
           });
         },

@@ -1,7 +1,8 @@
--- header_filter_by_lua_file: only does work for a request whose site has
--- content-replace rules (flagged in the access phase); otherwise one table
--- lookup and out.
+-- header_filter_by_lua_file: only does work for a request the access phase
+-- flagged (content replace, error-leak masking, directory-scan counting);
+-- otherwise a few table lookups and out.
 local w = _G.WAFPRO
-if not w or not ngx.ctx.wafpro_repl then return end
+local c = ngx.ctx
+if not w or not (c.wafpro_repl or c.wafpro_leak or c.wafpro_ip) then return end
 local ok, err = pcall(w.header_filter)
 if not ok then ngx.log(ngx.ERR, 'wafpro: header filter failed: ', tostring(err)) end

@@ -225,6 +225,16 @@ class wafpro_main:
         # CC automatic mode: past cc_auto_limit requests in cc_auto_cycle s a
         # site switches to browser verification for cc_auto_hold s
         'cc_auto': False, 'cc_auto_limit': 3000, 'cc_auto_cycle': 60, 'cc_auto_hold': 600,
+        # malicious upload / download defense (per-site upload_ext / deny_ext)
+        'm_upload': True, 'm_download': True,
+        # semantic analysis per parameter (engine/detect.lua). Off until it has
+        # been measured against public SQLi/XSS corpora.
+        'm_sqli': False, 'm_xss': False, 'm_rce': False,
+        'sqli_status': 403, 'xss_status': 403, 'rce_status': 403,
+        # weak password defense / error-message leak masking
+        'weak_pass': False, 'info_leak': False,
+        # directory scan defense: more than dirscan_count 404s in dirscan_time s
+        'dirscan': False, 'dirscan_time': 60, 'dirscan_count': 120,
     }
     # text settings and the values they may take
     CONFIG_CHOICES = {'cc_def_mode': ('block', 'challenge'), 'cc_def_key': ('ip', 'url', 'path', 'ipua')}
@@ -1163,7 +1173,7 @@ h1{margin:0 0 8px;font-size:19px}p{margin:0;color:#5c6470}
     # ----------------------------------------------------------------
     # status / engine
     # ----------------------------------------------------------------
-    ENGINE_FILES = ('wafpro.lua', 'init.lua', 'worker.lua', 'waf.lua', 'header.lua', 'body.lua')
+    ENGINE_FILES = ('wafpro.lua', 'detect.lua', 'init.lua', 'worker.lua', 'waf.lua', 'header.lua', 'body.lua')
     # other lua WAFs that hook the same nginx phases; two access_by_lua_file
     # in one http block is a duplicate directive
     CONFLICTS = (
@@ -1391,7 +1401,9 @@ h1{margin:0 0 8px;font-size:19px}p{margin:0;color:#5c6470}
         'hotlink': 'Anti-leech', 'protected-url': 'Protected URL', 'api': 'API defense',
         'php2shell': 'PHP2Shell guard', 'form-data': 'Malformed form-data',
         'challenge': 'Browser verification', 'nday': 'Known exploit (N-day)',
-        'idc': 'Datacenter (IDC) IP',
+        'idc': 'Datacenter (IDC) IP', 'url-method': 'URL request type', 'url-cc': 'URL CC defense',
+        'sqli': 'SQL injection', 'xss': 'XSS', 'cmdi': 'Command execution', 'lfi': 'File access / traversal',
+        'weak-password': 'Weak password', 'dir-scan': 'Directory scan',
     }
 
     def _log_files(self, site, date):
@@ -3014,7 +3026,9 @@ h1{margin:0 0 8px;font-size:19px}p{margin:0;color:#5c6470}
     # Stored as {site: {kind: [entry, ...]}}; compiled to rule/site_rules.txt.
     # ----------------------------------------------------------------
     SITE_RULES_JSON = PLUGIN_PATH + 'site_rules.json'
-    SITE_RULE_KINDS = ('dpath', 'leech', 'purl', 'api', 'repl')
+    # ucc: URL CC defense, uverify: URL enhancement mode (browser check),
+    # vwhite: machine verification whitelist, umethod: URL request type
+    SITE_RULE_KINDS = ('dpath', 'leech', 'purl', 'api', 'repl', 'ucc', 'uverify', 'vwhite', 'umethod')
     API_METHODS = ('GET', 'POST', 'PUT', 'PATCH', 'DELETE', 'HEAD', 'OPTIONS')
 
     def _site_rules(self):
@@ -3072,6 +3086,29 @@ h1{margin:0 0 8px;font-size:19px}p{margin:0;color:#5c6470}
             if not methods and not per_min:
                 return None, 'Set allowed methods, a rate limit, or both'
             return {'path': v, 'methods': ','.join(methods), 'per_min': per_min}, None
+        if kind == 'ucc':
+            v, err = regex(raw.get('path'), 'URL')
+            if err:
+                return None, err
+            try:
+                limit, cycle = int(raw.get('limit', 0)), int(raw.get('cycle', 0))
+            except Exception:
+                return None, 'Frequency and cycle must be numbers'
+            if cycle < 1 or limit < 1:
+                return None, 'Frequency and cycle must be at least 1'
+            return {'path': v, 'limit': limit, 'cycle': cycle}, None
+        if kind in ('uverify', 'vwhite'):
+            v, err = regex(raw.get('path'), 'URL')
+            return ({'path': v}, None) if not err else (None, err)
+        if kind == 'umethod':
+            v, err = regex(raw.get('path'), 'URL')
+            if err:
+                return None, err
+            methods = [m.strip().upper() for m in str(raw.get('methods', '')).split(',') if m.strip()]
+            if not methods or any(m not in self.API_METHODS for m in methods):
+                return None, 'Choose at least one request type'
+            mode = raw.get('mode') if raw.get('mode') in ('allow', 'refuse') else 'refuse'
+            return {'path': v, 'mode': mode, 'methods': ','.join(methods)}, None
         if kind == 'repl':
             frm = str(raw.get('from', ''))
             if not frm.strip():
@@ -3153,6 +3190,13 @@ h1{margin:0 0 8px;font-size:19px}p{margin:0;color:#5c6470}
                 out.append('|'.join(['api', site, enc(x['path']), enc(x['methods']), str(int(x['per_min']))]))
             for x in kinds.get('repl', []):
                 out.append('|'.join(['repl', site, enc(x['from']), enc(x['to'])]))
+            for x in kinds.get('ucc', []):
+                out.append('|'.join(['ucc', site, enc(x['path']), str(int(x['limit'])), str(int(x['cycle']))]))
+            for k in ('uverify', 'vwhite'):
+                for x in kinds.get(k, []):
+                    out.append('|'.join([k, site, enc(x['path'])]))
+            for x in kinds.get('umethod', []):
+                out.append('|'.join(['umethod', site, enc(x['path']), x['mode'], enc(x['methods'])]))
         return '\n'.join(out)
 
     # ----------------------------------------------------------------
