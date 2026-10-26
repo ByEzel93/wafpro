@@ -563,8 +563,7 @@ select.wp-in{height:32px}
 .wp-ms-box{border-color:#e0e0e6;min-height:30px;padding:2px 6px}
 .layui-layer.wp-layer .layui-layer-btn{box-sizing:border-box;width:100%}
 /* naive-ui select: no native arrow, a thin chevron instead */
-.wp-g-dlg select.wp-in, #wafpro-app select.wp-in{appearance:none;-webkit-appearance:none;padding-right:28px;background:#fff
-  url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 16 16'%3E%3Cpath d='M4 6l4 4 4-4' fill='none' stroke='%23999' stroke-width='1.4'/%3E%3C/svg%3E") no-repeat right 8px center/14px}
+.wp-g-dlg select.wp-in, #wafpro-app select.wp-in{appearance:none;-webkit-appearance:none;padding-right:28px;background-color:#fff;background-image:url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 16 16'%3E%3Cpath d='M4 6l4 4 4-4' fill='none' stroke='%23999' stroke-width='1.4'/%3E%3C/svg%3E");background-repeat:no-repeat;background-position:right 8px center;background-size:14px}
 
 /* ================= Traffic Limit dialog (stock form) ================= */
 .wp-tl{padding:24px !important}
@@ -768,3 +767,19 @@ select.wp-in{height:32px}
 .ov-more-t .r{text-align:right}
 .ov-client{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:16px}
 .ov-client h3{margin:0 0 12px;font-size:14px;font-weight:600;color:#475569}
+
+/* ================= Attack Map ================= */
+#wafpro-app .am-card{padding:0;overflow:hidden}
+#wafpro-app .am-bar{display:flex;align-items:center;justify-content:space-between;gap:12px;padding:10px 16px;border-bottom:1px solid #ebeef5}
+#wafpro-app .am-info{display:flex;align-items:center;gap:14px;flex-wrap:wrap;font-size:13px;color:#606266}
+#wafpro-app .am-info b{color:#303133}
+#wafpro-app .am-t{font-weight:600;color:#303133}
+#wafpro-app .am-ip{color:#909399}
+#wafpro-app .am-bar .wp-ico{width:16px;height:16px;stroke:currentColor}
+#wafpro-app .am-body{position:relative;height:640px;background:#fff}
+#wafpro-app .am-zoom{position:absolute;left:16px;bottom:56px;display:flex;flex-direction:column;border:1px solid #dcdfe6;border-radius:4px;overflow:hidden;background:#fff}
+#wafpro-app .am-zoom span{width:28px;height:28px;display:grid;place-items:center;cursor:pointer;font-size:16px;color:#606266;user-select:none}
+#wafpro-app .am-zoom span + span{border-top:1px solid #dcdfe6}
+#wafpro-app .am-zoom span:hover{color:#20a53a}
+#wafpro-app .am-legend{position:absolute;left:16px;bottom:18px;display:flex;align-items:center;gap:6px;font-size:11px;color:#909399}
+#wafpro-app .am-legend i{width:90px;height:8px;border-radius:4px;background:linear-gradient(90deg,#fdd835,#fb8c00,#e53935)}

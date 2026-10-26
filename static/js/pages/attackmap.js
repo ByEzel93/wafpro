@@ -21,26 +21,29 @@
 
   function renderAttackMap(r) {
     var sv = r.server || {};
-    var h = '<div class="wp-card" style="padding:0;overflow:hidden">';
-    h += '<div style="display:flex;align-items:center;gap:14px;padding:12px 16px;border-bottom:1px solid var(--wp-border);flex-wrap:wrap">' +
-      '<span style="font-weight:600;color:var(--wp-text)">Attack map</span>' +
-      '<span style="color:var(--wp-text3);font-size:12px">(map for reference only)</span>' +
-      '<span style="color:var(--wp-text2);font-size:13px">Longitude: <b id="am-lon">' + (sv.lon != null ? (+sv.lon).toFixed(3) : '-') + '</b></span>' +
-      '<span style="color:var(--wp-text2);font-size:13px">Latitude: <b id="am-lat">' + (sv.lat != null ? (+sv.lat).toFixed(3) : '-') + '</b></span>' +
-      '<span class="wp-lnk" id="am-modify">Modify</span>' +
-      '<span style="margin-left:auto;color:var(--wp-text2);font-size:12px">' +
-        'Local IP: <b>' + esc(sv.ip || '-') + '</b>' + (sv.city ? ' · ' + esc(sv.city) + ', ' + esc(sv.country) : '') + '</span>' +
-      '<span class="wp-lnk" id="am-full">&#10530; Full-screen</span>' +
-      '</div>';
-    h += '<div id="am-map" style="height:620px;width:100%"></div>';
-    h += '</div>';
+    var h = '<div class="wp-card am-card"><div class="am-bar"><div class="am-info">' +
+      '<span class="am-t">Attack map details (map for reference only)</span>' +
+      '<span>Longitude: <b>' + (sv.lon != null ? (+sv.lon).toFixed(3) : '-') + '</b></span>' +
+      '<span>Latitude: <b>' + (sv.lat != null ? (+sv.lat).toFixed(3) : '-') + '</b></span>' +
+      '<span class="wp-lnk" id="am-modify">Set</span>' +
+      '<span class="am-ip">Local IP: <b>' + esc(sv.ip || '-') + '</b></span></div>' +
+      '<span class="wp-btn" id="am-full"><svg class="wp-ico" viewBox="0 0 24 24"><path d="M4 9V4h5M20 9V4h-5M4 15v5h5M20 15v5h-5"/></svg>Full-screen</span></div>' +
+      '<div class="am-body" id="am-wrap"><div id="am-map" style="height:100%;width:100%"></div>' +
+      '<div class="am-zoom"><span id="am-zi" title="Zoom in">+</span><span id="am-zo" title="Zoom out">&minus;</span></div>' +
+      '<div class="am-legend"><span>Low</span><i></i><span>High</span></div></div></div>';
     $('#wp-body').html(h);
 
     loadWorld(function () { drawAttackMap(r); });
 
     $('#am-modify').on('click', function () { amModifyDialog(sv); });
+    $('#am-zi, #am-zo').on('click', function () {
+      var c = S.charts['am-map'];
+      if (!c) return;
+      var z = (c.getOption().geo[0].zoom || 1.2) * (this.id === 'am-zi' ? 1.3 : 1 / 1.3);
+      c.setOption({ geo: { zoom: Math.max(0.8, Math.min(z, 12)) } });
+    });
     $('#am-full').on('click', function () {
-      var el = document.getElementById('am-map');
+      var el = document.getElementById('am-wrap');
       if (!el) return;
       if (el.requestFullscreen) el.requestFullscreen();
       else if (el.webkitRequestFullscreen) el.webkitRequestFullscreen();
@@ -55,7 +58,9 @@
       el.innerHTML = '<div class="wp-empty">World map data unavailable</div>'; return;
     }
     var sv = r.server || {};
-    var pts = r.points || [];
+    var pts = (r.points || []).filter(function (p) {
+      return p.lat != null && p.lon != null && !(+p.lat === 0 && +p.lon === 0);
+    });
     if (sv.lat == null || sv.lon == null) {
       el.innerHTML = '<div class="wp-empty">Server location unknown — set it with Modify.</div>'; return;
     }
@@ -95,7 +100,10 @@
           type: 'effectScatter', coordinateSystem: 'geo', zlevel: 2,
           rippleEffect: { brushType: 'stroke', scale: 2.5 },
           symbolSize: function (v) { return Math.max(6, Math.min(24, 6 + (v[2] / max) * 18)); },
-          itemStyle: { color: '#ef4d4d' },
+          itemStyle: { color: function (p) {
+            var t = p.value[2] / max;
+            return t > 0.66 ? '#e53935' : t > 0.33 ? '#fb8c00' : '#fdd835';
+          } },
           data: scatter
         },
         {
@@ -112,24 +120,19 @@
   }
 
   function amModifyDialog(sv) {
-    var h = '<div class="wp-modal"><div class="wp-mod-head">' +
-      '<div class="wp-mod-site">Server location</div>' +
-      '<div class="wp-mod-meta">Where the Local IP marker sits on the map. Reference only.</div></div>' +
-      '<div class="wp-mod-body"><div class="wp-mod-sec">' +
-        '<div class="wp-mod-row"><div class="wp-mod-lbl">Latitude</div>' +
-          '<div class="wp-mod-ctl"><input class="wp-in" id="am-in-lat" style="width:180px" value="' + (sv.lat != null ? sv.lat : '') + '" placeholder="-90 to 90"></div></div>' +
-        '<div class="wp-mod-row"><div class="wp-mod-lbl">Longitude</div>' +
-          '<div class="wp-mod-ctl"><input class="wp-in" id="am-in-lon" style="width:180px" value="' + (sv.lon != null ? sv.lon : '') + '" placeholder="-180 to 180"></div></div>' +
-      '</div></div>' +
-      '<div class="wp-mod-foot"><span class="wp-btn" id="am-cancel">Cancel</span>' +
-        '<span class="wp-btn primary" id="am-ok">Save</span></div></div>';
-    var idx = W.open({ type: 1, title: false, closeBtn: 1, area: ['440px', '320px'], content: h });
-    $('#am-cancel').on('click', function () { layer.close(idx); });
-    $('#am-ok').on('click', function () {
-      post('set_map_location', { lat: $('#am-in-lat').val(), lon: $('#am-in-lon').val() }, function (rr) {
-        layer.msg(rr.msg, { icon: rr.status ? 1 : 2 });
-        if (rr.status) { layer.close(idx); route(); }
-      });
+    var idx = W.open({
+      type: 1, title: 'Set location', area: ['420px', 'auto'], btn: ['Confirm', 'Cancel'],
+      content: '<div class="wp-g-dlg"><div class="wp-g-row"><div class="wp-g-rl" style="width:80px">Longitude</div><div class="wp-g-rc">' +
+        '<input class="wp-in" id="am-in-lon" style="width:260px" placeholder="Please enter longitude" value="' + (sv.lon != null ? sv.lon : '') + '"></div></div>' +
+        '<div class="wp-g-row"><div class="wp-g-rl" style="width:80px">Latitude</div><div class="wp-g-rc">' +
+        '<input class="wp-in" id="am-in-lat" style="width:260px" placeholder="Please enter latitude" value="' + (sv.lat != null ? sv.lat : '') + '"></div></div>' +
+        '<div style="color:#909399;font-size:12px;padding-left:94px">The location is for reference only!</div></div>',
+      yes: function () {
+        post('set_map_location', { lat: $('#am-in-lat').val(), lon: $('#am-in-lon').val() }, function (rr) {
+          layer.msg(rr.msg, { icon: rr.status ? 1 : 2 });
+          if (rr.status) { layer.close(idx); route(); }
+        });
+      }
     });
   }
 
