@@ -211,6 +211,8 @@ class wafpro_main:
         'max_headers': 800,
         # repeat offenders get longer bans (x times banned today, max a day)
         'ban_escalate': True,
+        # fetch/XHR calls get this many times the per-site CC budget
+        'cc_api_mult': 5,
     }
     # Empty = allow every method. Anything here is an allow-list.
     DEFAULT_METHODS = ['GET', 'POST', 'HEAD', 'OPTIONS', 'PUT', 'DELETE', 'PATCH']
@@ -2853,7 +2855,9 @@ h1{margin:0 0 8px;font-size:19px}p{margin:0;color:#5c6470}
         for name, c in sorted(sites.items()):
             if not isinstance(c, dict):
                 continue
-            row = {'name': name, 'intercepts': hits.get(name, 0),
+            hit = hits.get(name, {})
+            row = {'name': name, 'intercepts': hit.get('total', 0),
+                   'cc_hits': hit.get('cc', 0), 'smart_hits': hit.get('smart', 0),
                    'project_type': types.get(name, ''),
                    'in_panel': name in types,
                    'domains': sorted(domains.get(name, [])),
@@ -2874,22 +2878,30 @@ h1{margin:0 0 8px;font-size:19px}p{margin:0;color:#5c6470}
         return {'status': True, 'data': out, 'mal_open': bool(self._config().get('mal_open'))}
 
     def _site_hits(self):
-        '''Blocks per site for today, straight from our own log.'''
+        '''Blocks per site for today, straight from our own log:
+        {site: {'total': n, 'cc': n, 'smart': n}} — the WebSite table shows
+        the total plus the CC / Smart CC counts next to those switches.'''
         out = {}
         path = WAF_LOG_DIR + time.strftime('%Y-%m-%d') + '.log'
         if not os.path.exists(path):
             return out
         try:
-            f = open(path, 'r')
-            for line in f:
-                try:
-                    s = json.loads(line)
-                except Exception:
-                    continue
-                n = s.get('site')
-                if n:
-                    out[n] = out.get(n, 0) + 1
-            f.close()
+            with open(path, 'r') as f:
+                for line in f:
+                    try:
+                        s = json.loads(line)
+                    except Exception:
+                        continue
+                    n = s.get('site')
+                    if not n:
+                        continue
+                    c = out.setdefault(n, {'total': 0, 'cc': 0, 'smart': 0})
+                    c['total'] += 1
+                    rule = s.get('rule', '')
+                    if rule in ('cc', 'cc-blocked'):
+                        c['cc'] += 1
+                    elif rule == 'smart-cc':
+                        c['smart'] += 1
         except Exception:
             pass
         return out

@@ -814,16 +814,30 @@ local function effective_cc_limit(sc, rate)
     return lim, true
 end
 
+-- fetch/XHR calls a page makes (Sec-Fetch-Dest: empty, JSON, X-Requested-
+-- With). A single-page app (Nuxt, Next, React) fires several per click, so
+-- one real visitor easily passes a per-minute page budget — those calls get
+-- their own, wider bucket instead of sharing the page-load one.
+local function is_api_call()
+    local dest = ngx.var.http_sec_fetch_dest
+    if dest == 'empty' then return true end
+    if ngx.var.http_x_requested_with then return true end
+    local accept = ngx.var.http_accept or ''
+    return accept:find('application/json', 1, true) ~= nil and not accept:find('text/html', 1, true)
+end
+
 local function cc_check(site, sc, ip, rate)
     local dict = ngx.shared.wafpro_cc
     if not dict then return end
-    local key = ip .. '|' .. site
+    local api = is_api_call()
+    local key = ip .. '|' .. site .. (api and '|a' or '')
     local n = dict:incr(key, 1)
     if not n then
         dict:set(key, 1, sc.cc_cycle)
         return
     end
     local limit, smart = effective_cc_limit(sc, rate)
+    if api then limit = limit * (tonumber(state.cfg.cc_api_mult) or 5) end
     if n > limit then
         dict:delete(key)
         ban(ip, sc.cc_block, site, smart and 'smart-cc' or 'cc', n)
