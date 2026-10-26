@@ -1,32 +1,122 @@
-<div id="wafpro-app">
+<div id="wafpro-app" style="visibility:hidden">
   <div class="wp-tabs" id="wp-tabs"></div>
     <div class="wp-body" id="wp-body"><div class="wp-loading">Loading...</div></div>
 </div>
 <script type="text/javascript">
-/* WAF Pro loader: stylesheet + modules from /wafpro/static/, in order.
-   Modules: static/js/core.js (helpers, router), pages/*.js (one per tab),
-   shared.js, app.js (boot). ?v= busts the browser cache on upgrade. */
+/* WAF Pro loader: sizes the panel dialog, then loads the stylesheet and the
+   modules from /wafpro/static/. Modules: static/js/core.js (helpers, router),
+   pages/*.js (one per tab), shared.js, app.js (boot). ?v= busts the browser
+   cache on upgrade.
+
+   The dialog is sized here, synchronously, before anything else: otherwise it
+   opened at the panel's default size, showed bare tabs, and grew in steps as
+   the modules arrived. The page stays hidden until the stylesheet is in and
+   app.js has drawn the first tab. */
 (function () {
   var V = '2.2', BASE = '/wafpro/static/';
   var FILES = ["js/core.js", "js/pages/blockade.js", "js/pages/lists.js", "js/pages/rules.js", "js/pages/exclusive.js", "js/pages/overview.js", "js/pages/website.js", "js/pages/region.js", "js/pages/traffic.js", "js/pages/attackmap.js", "js/pages/report.js", "js/pages/global.js", "js/pages/webshell.js", "js/shared.js", "js/app.js"];
-  // one stylesheet per page; swap its href when the plugin was upgraded
+  var W = window.WAFPRO = window.WAFPRO || {};
+
+  // fill the dialog body below the app's own top edge
+  W.fit = function () {
+    var app = document.getElementById('wafpro-app');
+    if (!app) return;
+    var n = app.parentElement, box = null;
+    while (n && n !== document.body) {
+      if (n.clientHeight && n.clientHeight > 150) { box = n; break; }
+      n = n.parentElement;
+    }
+    var h = box ? box.clientHeight - Math.max(app.getBoundingClientRect().top - box.getBoundingClientRect().top, 0)
+                : Math.max(window.innerHeight - 120, 480);
+    app.style.height = Math.max(h, 420) + 'px';
+    if (app.parentElement) app.parentElement.style.overflow = 'hidden';
+    if (W.resizeCharts) W.resizeCharts();
+  };
+  // grow the panel's dialog to (nearly) the whole window, centred
+  W.widen = function () {
+    var app = document.getElementById('wafpro-app');
+    if (!app) return;
+    var vw = window.innerWidth, vh = window.innerHeight;
+    var w = Math.min(1500, vw - 40), h = Math.min(900, vh - 40);
+    var el = app.parentElement, prev = app, target = null, narrow = null, nw = 1e9;
+    while (el && el !== document.body && el !== document.documentElement) {
+      var cs = getComputedStyle(el);
+      if (cs.position === 'fixed' && el.clientWidth >= vw * 0.95 && el.clientHeight >= vh * 0.9) { target = prev; break; }
+      if (el.classList.contains('layui-layer')) { target = el; break; }
+      if (el.clientWidth >= 300 && el.clientWidth < nw) { nw = el.clientWidth; narrow = el; }
+      prev = el; el = el.parentElement;
+    }
+    if (!target) target = narrow;
+    if (target && target !== app) {
+      var st = target.style;
+      st.setProperty('transition', 'none', 'important');
+      st.setProperty('animation', 'none', 'important');
+      st.setProperty('width', w + 'px', 'important');
+      st.setProperty('max-width', 'none', 'important');
+      st.setProperty('height', h + 'px', 'important');
+      st.setProperty('max-height', 'none', 'important');
+      var tcs = getComputedStyle(target);
+      if (tcs.position === 'fixed' || tcs.position === 'absolute') {
+        st.setProperty('left', Math.max((vw - w) / 2, 10) + 'px', 'important');
+        st.setProperty('top', Math.max((vh - h) / 2, 10) + 'px', 'important');
+        st.setProperty('right', 'auto', 'important'); st.setProperty('bottom', 'auto', 'important');
+        st.setProperty('margin', '0', 'important'); st.setProperty('transform', 'none', 'important');
+      }
+      var mid = app.parentElement;
+      while (mid && mid !== target) {
+        mid.style.setProperty('width', '100%', 'important');
+        mid.style.setProperty('max-width', 'none', 'important');
+        if (mid.classList.contains('layui-layer-content')) {
+          // the dialog's content box: everything under the title bar
+          var title = target.querySelector('.layui-layer-title');
+          mid.style.setProperty('height', (h - (title ? title.offsetHeight : 0)) + 'px', 'important');
+        }
+        mid = mid.parentElement;
+      }
+    }
+    W.fit();
+  };
+  W.widen();
+  // one handler per window, however often the plugin is reopened
+  if (W.onResize) window.removeEventListener('resize', W.onResize);
+  W.onResize = function () { W.widen(); };
+  window.addEventListener('resize', W.onResize);
+
+  // reveal once both the stylesheet and the first render are done
+  var pending = 2;
+  function done() {
+    if (--pending > 0) return;
+    W.widen();
+    var app = document.getElementById('wafpro-app');
+    if (app) app.style.visibility = '';
+  }
+  W.booted = done;
+
   var l = document.getElementById('wafpro-css');
   if (!l) {
     l = document.createElement('link');
     l.id = 'wafpro-css'; l.rel = 'stylesheet';
     document.head.appendChild(l);
   }
-  if (l.getAttribute('href') !== BASE + 'css/wafpro.css?v=' + V) l.href = BASE + 'css/wafpro.css?v=' + V;
-  (function next(i) {
-    if (i >= FILES.length) return;
+  if (l.getAttribute('href') !== BASE + 'css/wafpro.css?v=' + V) {
+    l.onload = l.onerror = done;
+    l.href = BASE + 'css/wafpro.css?v=' + V;
+  } else {
+    done();                         // already loaded on an earlier open
+  }
+
+  // download in parallel, execute in order (async=false keeps the order)
+  FILES.forEach(function (f) {
     var s = document.createElement('script');
-    s.src = BASE + FILES[i] + '?v=' + V;
-    s.onload = function () { next(i + 1); };
+    s.async = false;
+    s.src = BASE + f + '?v=' + V;
     s.onerror = function () {
       var b = document.getElementById('wp-body');
-      if (b) b.innerHTML = '<div class="wp-note">Could not load ' + FILES[i] + ' — reinstall the plugin.</div>';
+      if (b) b.innerHTML = '<div class="wp-note">Could not load ' + f + ' — reinstall the plugin.</div>';
+      var app = document.getElementById('wafpro-app');
+      if (app) app.style.visibility = '';
     };
     document.body.appendChild(s);
-  })(0);
+  });
 })();
 </script>

@@ -49,56 +49,11 @@
     return b + ' B';
   }
 
-  /* ---------- fit into the panel dialog ---------- */
-  function fit() {
-    var app = document.getElementById('wafpro-app');
-    if (!app) return;
-    var n = app.parentElement, box = null;
-    while (n && n !== document.body) {
-      if (n.clientHeight && n.clientHeight > 150) { box = n; break; }
-      n = n.parentElement;
-    }
-    var h = box ? box.clientHeight - Math.max(app.getBoundingClientRect().top - box.getBoundingClientRect().top, 0)
-                : Math.max(window.innerHeight - 120, 480);
-    app.style.height = Math.max(h, 420) + 'px';
-    if (app.parentElement) app.parentElement.style.overflow = 'hidden';
-    resizeCharts();
-  }
-  function widen() {
-    var app = document.getElementById('wafpro-app');
-    if (!app) return;
-    var vw = window.innerWidth, vh = window.innerHeight;
-    var W = Math.min(1500, vw - 40), H = Math.min(900, vh - 40);
-    var el = app.parentElement, prev = app, target = null, narrow = null, nw = 1e9;
-    while (el && el !== document.body && el !== document.documentElement) {
-      var cs = getComputedStyle(el);
-      if (cs.position === 'fixed' && el.clientWidth >= vw * 0.95 && el.clientHeight >= vh * 0.9) { target = prev; break; }
-      if (el.clientWidth >= 300 && el.clientWidth < nw) { nw = el.clientWidth; narrow = el; }
-      prev = el; el = el.parentElement;
-    }
-    if (!target) target = narrow;
-    if (target && target !== app) {
-      var st = target.style;
-      st.setProperty('width', W + 'px', 'important');
-      st.setProperty('max-width', 'none', 'important');
-      st.setProperty('height', H + 'px', 'important');
-      st.setProperty('max-height', 'none', 'important');
-      var tcs = getComputedStyle(target);
-      if (tcs.position === 'fixed' || tcs.position === 'absolute') {
-        st.setProperty('left', Math.max((vw - W) / 2, 10) + 'px', 'important');
-        st.setProperty('top', Math.max((vh - H) / 2, 10) + 'px', 'important');
-        st.setProperty('right', 'auto', 'important'); st.setProperty('bottom', 'auto', 'important');
-        st.setProperty('margin', '0', 'important'); st.setProperty('transform', 'none', 'important');
-      }
-      var mid = app.parentElement;
-      while (mid && mid !== target) {
-        mid.style.setProperty('width', '100%', 'important');
-        mid.style.setProperty('max-width', 'none', 'important');
-        mid = mid.parentElement;
-      }
-    }
-    fit();
-  }
+  /* ---------- fit into the panel dialog ----------
+     index.html sizes the dialog itself, before any module loads, so it opens
+     at its final size instead of growing in steps; these are its functions. */
+  function fit() { return W.fit.apply(this, arguments); }
+  function widen() { return W.widen.apply(this, arguments); }
   function resizeCharts() {
     Object.keys(S.charts).forEach(function (k) { try { S.charts[k].resize(); } catch (e) {} });
   }
@@ -277,7 +232,6 @@
   W.ec = ec;
   W.ensureEcharts = ensureEcharts;
   W.esc = esc;
-  W.fit = fit;
   W.mb = mb;
   W.num = num;
   W.pickDate = pickDate;
@@ -287,5 +241,4 @@
   W.resizeCharts = resizeCharts;
   W.route = route;
   W.todayStr = todayStr;
-  W.widen = widen;
 })(window.WAFPRO = window.WAFPRO || {});
