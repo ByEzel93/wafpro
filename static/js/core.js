@@ -237,7 +237,20 @@
      look (skin 'wp-layer'); the panel's own popups keep their skin. */
   function open(o) {
     o.skin = ((o.skin || '') + ' wp-layer').trim();
+    var done = o.success;
+    o.success = function (el, idx) {
+      if (done) done.apply(this, arguments);
+      if (o.area && o.area[1] === 'auto') autoFit(el);
+    };
     return layer.open(o);
+  }
+  // 'auto' height is measured before success() fills the dialog in: let it
+  // grow with its content (scrolling past the viewport) and re-centre it
+  function autoFit(el) {
+    var $l = $(el), $c = $l.find('.layui-layer-content');
+    var other = $l.outerHeight() - $c.outerHeight();
+    $c.css({ height: 'auto', 'max-height': Math.max(window.innerHeight - other - 40, 200) + 'px', overflow: 'auto' });
+    $l.css({ height: 'auto', top: Math.max((window.innerHeight - $l.outerHeight()) / 2, 20) + 'px' });
   }
   function confirm(msg, opt, yes) {
     if (typeof opt === 'function') { yes = opt; opt = {}; }

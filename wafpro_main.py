@@ -1185,15 +1185,15 @@ p{margin:0;color:#606266}
 
         # custom rules -> multi-line format the engine reads:
         #   R|id|site|action|status|open
-        #   C|field|op|extra|value        (extra = param/header name or bin file)
+        #   C|field|op|extra|value|group  (extra = param/header name or bin file;
+        #                                  same group = AND, groups are ORed)
         # ip/country conditions compile their ranges to a .bin (+ .bin6 for ip)
         # kept alongside the region bins (added to `keep` so the cleanup below
         # spares them).
         cl = []
         for r in self._custom():
-            cl.append('|'.join(['R', r['id'], r['site'], r['action'],
-                               str(int(r.get('status', 403))),
-                               '1' if r.get('open') else '0']))
+            # one R block per site the rule covers
+            conds_lines = []
             for ci, c in enumerate(r.get('conds', [])):
                 field, op = c.get('field', ''), c.get('op', '')
                 extra, value = c.get('extra', ''), c.get('value', '')
@@ -1208,8 +1208,13 @@ p{margin:0;color:#606266}
                     keep.add(binname)
                     keep.add(binname + '6')
                     extra, value = binname, ''
-                cl.append('|'.join(['C', field, op,
-                                   self._enc_pipe(extra), self._enc_pipe(value)]))
+                conds_lines.append('|'.join(['C', field, op, self._enc_pipe(extra),
+                                             self._enc_pipe(value), str(int(c.get('g', 0)))]))
+            for site in (r.get('sites') or [r.get('site', '')]):
+                cl.append('|'.join(['R', r['id'], site, r['action'],
+                                   str(int(r.get('status', 403))),
+                                   '1' if r.get('open') else '0']))
+                cl.extend(conds_lines)
         self._w('custom.txt', '\n'.join(cl))
 
         # per-site lists (forbidden URL, anti-leech, protected URL, API, replace)
@@ -2983,7 +2988,7 @@ p{margin:0;color:#606266}
                      'args', 'user_agent', 'referer', 'cookie', 'header')
     CUSTOM_TEXT_OPS = ('eq', 'ne', 'contains', 'ncontains', 'prefix', 'suffix',
                        'regex', 'in', 'exists', 'nexists')
-    CUSTOM_ACTIONS = ('block', 'code', 'allow')
+    CUSTOM_ACTIONS = ('block', 'code', 'allow', 'verify')
     CUSTOM_STATUS = (403, 444, 404, 502, 503)
 
     def _custom(self):
@@ -3017,9 +3022,20 @@ p{margin:0;color:#606266}
         name = (self._arg(get, 'name') or '').strip()
         if not name:
             return None, 'Rule name is required'
-        site = (getattr(get, 'site', '') or '').strip()
-        if not site:
-            return None, 'Select a website'
+        try:
+            sites = json.loads(getattr(get, 'sites', '') or '[]')
+        except Exception:
+            sites = []
+        if not isinstance(sites, list):
+            sites = []
+        one = (getattr(get, 'site', '') or '').strip()
+        if one:
+            sites.append(one)
+        known = set(self._panel_sites())
+        sites = ['*'] if '*' in sites else sorted({x for x in sites if x in known})
+        if not sites:
+            return None, 'Please select a website'
+        site = sites[0]
         action = self._arg(get, 'action', 'block')
         if action not in self.CUSTOM_ACTIONS:
             return None, 'Bad action'
@@ -3063,8 +3079,14 @@ p{margin:0;color:#606266}
                         return None, 'Invalid regex: {}'.format(e)
                 elif op not in ('exists', 'nexists') and value == '':
                     return None, 'Condition value is required'
-            clean.append({'field': field, 'op': op, 'extra': extra, 'value': value})
-        return {'name': name, 'site': site, 'action': action,
+            try:
+                g = max(int(c.get('g', 0)), 0)
+            except Exception:
+                g = 0
+            clean.append({'field': field, 'op': op, 'extra': extra, 'value': value, 'g': g})
+        # the engine reads a group's conditions as one contiguous run
+        clean.sort(key=lambda x: x['g'])
+        return {'name': name, 'site': site, 'sites': sites, 'action': action,
                 'status': status, 'conds': clean}, None
 
     def custom_rules(self, get):

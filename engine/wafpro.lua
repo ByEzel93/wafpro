@@ -454,8 +454,9 @@ local function parse_custom(path)
                 b[#b + 1] = cur
             end
         elseif f[1] == 'C' and cur then
+            -- f6: OR-group; conditions in one group are ANDed (2.1 had one group)
             local c = { field = f[2], op = f[3], extra = url_decode_pipe(f[4]),
-                        value = url_decode_pipe(f[5] or '') }
+                        value = url_decode_pipe(f[5] or ''), group = tonumber(f[6]) or 0 }
             if c.field == 'ip' or c.field == 'country' then
                 -- extra = bin filename; ip conditions may also carry v6 ranges
                 c.set = { v4 = read_all(RULE_DIR .. c.extra),
@@ -1034,18 +1035,31 @@ local function custom_check(site, ctx)
     local wild = state.custom_by_site['*']
     if not list and not wild then return end
 
+    -- a rule matches when every condition of at least one group matches
+    local function matches(r)
+        local cur, ok = nil, false
+        for j = 1, #r.conds do
+            local c = r.conds[j]
+            if c.group ~= cur then
+                if ok then return true end
+                cur, ok = c.group, true
+            end
+            if ok and not cust_cond(c, ctx) then ok = false end
+        end
+        return ok
+    end
     local function apply(rs)
         for i = 1, #rs do
             local r = rs[i]
-            local all = true
-            for j = 1, #r.conds do
-                if not cust_cond(r.conds[j], ctx) then all = false; break end
-            end
-            if all and #r.conds > 0 then
+            if #r.conds > 0 and matches(r) then
                 if r.action == 'allow' then
                     log_hit(ctx.ips, site, r.id, 'release')
                     ctx.allow = true
                     return true                     -- whitelist: stop, let it through
+                end
+                if r.action == 'verify' then
+                    log_hit(ctx.ips, site, r.id, 'intercept')
+                    return 'verify'                 -- the caller runs the browser check
                 end
                 local st = (r.action == 'code') and r.status or (tonumber(state.cfg.custom_status) or 403)
                 log_hit(ctx.ips, site, r.id, 'intercept')
@@ -1053,8 +1067,9 @@ local function custom_check(site, ctx)
             end
         end
     end
-    if list and apply(list) then return true end
-    if wild and apply(wild) then return true end
+    local res = list and apply(list)
+    if res then return res end
+    return wild and apply(wild) or nil
 end
 
 -- Traffic limit: rate-limit a specific URL per IP (or per IP+UA). Lowest
@@ -1101,6 +1116,7 @@ local function traffic_check(site, ips, uri, ua)
                         if r.ret == '444' then return deny(ips, site, 'traffic', why, 444) end
                         log_block(ips, site, 'traffic', why, 429)
                         ngx.status = 429
+                        ngx.header['Cache-Control'] = 'no-store'
                         if r.ret == 'json' then
                             ngx.header['Content-Type'] = 'application/json; charset=utf-8'
                             ngx.print(state.limit_json or '{"code":429,"msg":"Too many requests"}')
@@ -1108,7 +1124,6 @@ local function traffic_check(site, ips, uri, ua)
                             ngx.header['Content-Type'] = 'text/html; charset=utf-8'
                             ngx.print(state.limit_html or 'Too many requests')
                         end
-                        ngx.header['Cache-Control'] = 'no-store'
                         return ngx.exit(429)
                     end
                     return deny(ips, site, 'traffic', why, r.status)
@@ -1670,7 +1685,15 @@ function _M.access()
     -- custom rules: user-defined, evaluated before the built-in filters so a
     -- custom allow can whitelist and a custom block can pre-empt them.
     if state.custom_by_site[site] or state.custom_by_site['*'] then
-        if custom_check(site, ctx) then
+        local res = custom_check(site, ctx)
+        if res == 'verify' then
+            -- "Verification method": a browser proves itself once (cookie);
+            -- non-page requests without the cookie are refused
+            if not verified(ips, ua) then
+                if wants_html() then return challenge(ips, site, ua, 'custom rule verification') end
+                return deny(ips, site, 'challenge', 'custom rule verification', 403)
+            end
+        elseif res then
             return                                -- allow matched; deny already exited
         end
     end

@@ -3,53 +3,61 @@
   var S = W.S;
   function esc() { return W.esc.apply(this, arguments); }
   function icoWarn() { return W.icoWarn.apply(this, arguments); }
-  function num() { return W.num.apply(this, arguments); }
   function post() { return W.post.apply(this, arguments); }
   function route() { return W.route.apply(this, arguments); }
-  function row() { return W.row.apply(this, arguments); }
 
-  /* ================= CUSTOM RULES ================= */
-  /* ================= CUSTOM RULES =================
-     User-defined multi-condition rules. Each rule is a set of AND-conditions;
-     if all match, the action fires. Evaluated before the built-in filters, so
-     an allow rule whitelists and a block rule pre-empts them. */
+  /* ================= CUSTOM RULES (aaPanel 8 layout) =================
+     A rule is OR-groups of AND-conditions ("And" adds a row to the group,
+     "Or" starts a new group), applied to some or all websites. Evaluated
+     right after the IP/UA/URL white- and blacklists. */
   var CR_FIELDS = [
-    { v: 'ip', t: 'IP range', kind: 'ipset' },
-    { v: 'country', t: 'Country', kind: 'country' },
-    { v: 'method', t: 'Method', kind: 'text' },
-    { v: 'uri', t: 'URI (path)', kind: 'text' },
-    { v: 'uri_args', t: 'URI (with parameters)', kind: 'text' },
-    { v: 'uri_param', t: 'URI parameter', kind: 'named' },
-    { v: 'args', t: 'Query string', kind: 'text' },
-    { v: 'user_agent', t: 'User-Agent', kind: 'text' },
-    { v: 'referer', t: 'Referer', kind: 'text' },
-    { v: 'cookie', t: 'Cookie', kind: 'text' },
-    { v: 'header', t: 'Request header', kind: 'named' }
+    { v: 'ip', t: 'IP address', kind: 'ipset', ph: '1.2.3.0/24, 5.5.5.5' },
+    { v: 'country', t: 'IP region', kind: 'country', ph: 'TR, US, DE' },
+    { v: 'method', t: 'Request method', kind: 'text', ph: 'POST' },
+    { v: 'uri', t: 'URI (without parameters)', kind: 'text', ph: '/admin' },
+    { v: 'uri_args', t: 'URI (with parameters)', kind: 'text', ph: '/index.php?s=1' },
+    { v: 'uri_param', t: 'URI parameter', kind: 'named', ph: 'value' },
+    { v: 'args', t: 'Query string', kind: 'text', ph: 'id=1' },
+    { v: 'user_agent', t: 'User-Agent', kind: 'text', ph: 'python-requests' },
+    { v: 'referer', t: 'Referer', kind: 'text', ph: 'https://example.com' },
+    { v: 'cookie', t: 'Cookie', kind: 'text', ph: 'session=' },
+    { v: 'header', t: 'Request header', kind: 'named', ph: 'value' }
   ];
   var CR_TEXT_OPS = [
-    { v: 'eq', t: 'equals' }, { v: 'ne', t: 'does not equal' },
-    { v: 'contains', t: 'contains' }, { v: 'ncontains', t: 'does not contain' },
-    { v: 'prefix', t: 'starts with' }, { v: 'suffix', t: 'ends with' },
-    { v: 'regex', t: 'matches regex' }, { v: 'in', t: 'is one of (comma list)' },
-    { v: 'exists', t: 'exists' }, { v: 'nexists', t: 'is absent' }
+    { v: 'eq', t: 'Equal to' }, { v: 'ne', t: 'Not equal to' },
+    { v: 'contains', t: 'Contains' }, { v: 'ncontains', t: 'Does not contain' },
+    { v: 'prefix', t: 'Starts with' }, { v: 'suffix', t: 'Ends with' },
+    { v: 'regex', t: 'Regular match' }, { v: 'in', t: 'In list (comma)' },
+    { v: 'exists', t: 'Exists' }, { v: 'nexists', t: 'Does not exist' }
   ];
-  var CR_SET_OPS = [{ v: 'match', t: 'is in' }, { v: 'notmatch', t: 'is not in' }];
-  var CR_STATUS = [
-    { code: 403, name: '403 Access denied' }, { code: 444, name: '444 Close connection' },
-    { code: 404, name: '404 Not found' }, { code: 502, name: '502 Bad gateway' },
-    { code: 503, name: '503 Service unavailable' }
+  var CR_SET_OPS = [{ v: 'match', t: 'Belongs to' }, { v: 'notmatch', t: 'Does not belong to' }];
+  // Operation Options -> Response page / Verification method
+  var CR_RESP = [
+    ['block', 'Default blocked page'], ['code:403', '403 Access denied'], ['code:404', '404 File not exist'],
+    ['code:444', '444 Close connection'], ['code:502', '502 Bad gateway'], ['code:503', '503 Service unavailable']
   ];
+  var CR_STATUS = [403, 404, 444, 502, 503];
   function crFieldOf(v) { return CR_FIELDS.filter(function (x) { return x.v === v; })[0] || CR_FIELDS[0]; }
   function crFieldName(v) { return crFieldOf(v).t; }
+  function opName(v) {
+    var o = CR_TEXT_OPS.concat(CR_SET_OPS).filter(function (x) { return x.v === v; })[0];
+    return o ? o.t : v;
+  }
+  // "URI (without parameters) Contains /admin And ..." with Or between groups
   function crRuleSummary(r) {
-    // the paid UI lists the fields a rule matches on
-    var seen = {}, out = [];
-    (r.conds || []).forEach(function (c) { if (!seen[c.field]) { seen[c.field] = 1; out.push(crFieldName(c.field)); } });
-    return out.join(', ');
+    var groups = {}, order = [];
+    (r.conds || []).forEach(function (c) {
+      var g = c.g || 0;
+      if (!groups[g]) { groups[g] = []; order.push(g); }
+      groups[g].push(crFieldName(c.field) + (c.extra ? ' [' + c.extra + ']' : '') + ' ' + opName(c.op) +
+        (c.op === 'exists' || c.op === 'nexists' ? '' : ' ' + c.value));
+    });
+    return order.map(function (g) { return groups[g].join(' And '); }).join(' Or ');
   }
   function crActionText(r) {
-    if (r.action === 'allow') return 'Allow (whitelist)';
-    if (r.action === 'block') return 'Intercept (default blocked page)';
+    if (r.action === 'allow') return 'Release';
+    if (r.action === 'verify') return 'Verification (Browser verification)';
+    if (r.action === 'block') return 'Intercept (Default blocked page)';
     return 'Intercept (' + r.status + ' response)';
   }
 
@@ -69,67 +77,59 @@
       h += '<div class="wp-note" style="margin-bottom:12px">' + icoWarn() +
         ' The engine is not wired into nginx, so these rules are stored but not enforced.</div>';
     }
-    h += '<div class="wp-card">';
-    h += '<div style="margin-bottom:14px"><span class="wp-btn primary" id="cr-add">Add custom interception</span></div>';
-    h += '<table class="wp-tbl"><thead><tr>' +
-      '<th style="width:140px">Rule name</th>' +
-      '<th style="width:160px">Website name</th>' +
-      '<th style="width:90px">Status</th>' +
-      '<th style="width:60px">Hits</th>' +
-      '<th>Rule</th>' +
-      '<th style="width:230px">Action</th>' +
-      '<th style="width:140px">Operate</th></tr></thead><tbody>';
-    if (!r.rules.length) {
-      h += '<tr><td colspan="7" style="padding:26px;text-align:center;color:var(--wp-text3)">No custom rule yet.</td></tr>';
-    } else {
-      h += r.rules.map(function (x) {
-        return '<tr data-id="' + x.id + '">' +
-          '<td style="color:var(--wp-text);font-weight:600">' + esc(x.name) + '</td>' +
-          '<td class="ell" title="' + esc(x.site) + '">' + esc(x.site) + '</td>' +
-          '<td><span class="cr-st" style="cursor:pointer;color:' + (x.open ? 'var(--wp-green)' : 'var(--wp-text3)') + '">' +
-            (x.open ? 'Running &#9654;' : 'Stopped &#9632;') + '</span></td>' +
-          '<td style="color:' + (x.hits ? 'var(--wp-red)' : 'var(--wp-text3)') + ';font-weight:600">' + num(x.hits) + '</td>' +
-          '<td style="color:var(--wp-text2)">' + esc(crRuleSummary(x)) + '</td>' +
-          '<td>' + esc(crActionText(x)) + '</td>' +
-          '<td>' +
-            '<a href="javascript:;" class="cr-copy" style="color:var(--wp-green)">Copy</a> <span style="color:var(--wp-border)">|</span> ' +
-            '<a href="javascript:;" class="cr-edit" style="color:var(--wp-green)">Edit</a> <span style="color:var(--wp-border)">|</span> ' +
-            '<a href="javascript:;" class="cr-del" style="color:var(--wp-green)">Delete</a></td></tr>';
-      }).join('');
-    }
-    h += '</tbody></table>';
-    h += '<ul class="wp-notes">' +
-      '<li>Custom rules run before the built-in filters: an <b>allow</b> rule whitelists the request, a <b>block</b> rule stops it early.</li>' +
-      '<li>All conditions in a rule must match (AND). Loopback and LAN traffic is never touched.</li>' +
-      '</ul>';
-    h += '</div>';
+    h += '<div class="wp-card"><div class="wp-bl-bar" style="margin-bottom:14px">' +
+      '<span class="wp-btn primary" id="cr-add">Add custom interception</span></div>';
+    h += '<div class="wp-site-box"><table class="wp-site-tbl"><thead><tr>' +
+      '<th>Rule name</th><th style="width:20%">Website name</th><th style="width:8%">Status</th><th style="width:8%">Hits</th>' +
+      '<th style="width:22%">Rule</th><th style="width:18%">Action</th><th class="r" style="width:140px">Operate</th>' +
+      '</tr></thead><tbody>';
+    h += r.rules.length ? r.rules.map(function (x) {
+      var sum = crRuleSummary(x);
+      return '<tr data-id="' + esc(x.id) + '"><td class="ell" title="' + esc(x.name) + '">' + esc(x.name) + '</td>' +
+        '<td class="ell" style="max-width:260px">' + esc((x.sites || [x.site]).map(function (s) {
+          return s === '*' ? 'All websites' : s; }).join(', ')) + '</td>' +
+        '<td><label class="wp-sw wp-sw-sm"><input type="checkbox" class="cr-on"' + (x.open ? ' checked' : '') + '><span class="sl"></span></label></td>' +
+        '<td><span class="wp-tag' + (x.hits ? ' ok' : '') + '">' + (x.hits || 0) + '</span></td>' +
+        '<td class="ell" style="max-width:260px" title="' + esc(sum) + '">' + esc(sum) + '</td>' +
+        '<td class="ell">' + esc(crActionText(x)) + '</td>' +
+        '<td class="wp-ops"><span class="wp-lnk cr-copy">Copy</span><span class="wp-ops-sep">|</span>' +
+        '<span class="wp-lnk cr-edit">Edit</span><span class="wp-ops-sep">|</span><span class="wp-lnk cr-del">Delete</span></td></tr>';
+    }).join('') : '<tr><td colspan="7" class="wp-empty">No Data</td></tr>';
+    h += '</tbody></table></div>';
+    h += '<ul class="wp-notes" style="margin-top:20px">' +
+      '<li>Customized Priority: IP whitelist &gt; IP blacklist &gt; UA whitelist &gt; UA blacklist &gt; URL whitelist &gt; ' +
+      'Customized interception &gt; URL blacklist &gt; Regional restriction &gt; CC defense and the other filters</li>' +
+      '<li>If a custom intercept is prioritized ahead it will execute the preceding</li></ul></div>';
     $('#wp-body').html(h);
 
+    function byId(el) {
+      var id = $(el).closest('tr').data('id');
+      return r.rules.filter(function (x) { return x.id === id; })[0];
+    }
     $('#cr-add').on('click', function () { crDialog(null); });
-    $('#wp-body').on('click', '.cr-edit', function () {
-      var id = $(this).closest('tr').data('id');
-      crDialog(r.rules.filter(function (x) { return x.id === id; })[0]);
-    });
+    $('#wp-body').on('click', '.cr-edit', function () { crDialog(byId(this)); });
     $('#wp-body').on('click', '.cr-copy', function () {
-      var id = $(this).closest('tr').data('id');
-      post('custom_copy', { id: id }, function (rr) {
-        layer.msg(rr.msg, { icon: rr.status ? 1 : 2 });
-        if (rr.status) route();
+      var x = byId(this);
+      W.confirm('Is the rule copied and created as a new rule?', { title: 'Copy rule [' + esc(x.name) + ']' }, function (i) {
+        layer.close(i);
+        post('custom_copy', { id: x.id }, function (rr) {
+          layer.msg(rr.msg, { icon: rr.status ? 1 : 2 });
+          if (rr.status) route();
+        });
       });
     });
-    $('#wp-body').on('click', '.cr-st', function () {
-      var tr = $(this).closest('tr'), id = tr.data('id');
-      var rule = r.rules.filter(function (x) { return x.id === id; })[0];
-      post('custom_toggle', { id: id, open: rule.open ? 0 : 1 }, function (rr) {
+    $('#wp-body').on('change', '.cr-on', function () {
+      var x = byId(this), on = this.checked;
+      post('custom_toggle', { id: x.id, open: on ? 1 : 0 }, function (rr) {
         layer.msg(rr.msg, { icon: rr.status ? 1 : 2 });
-        if (rr.status) route();
+        if (rr.status) x.open = on;
       });
     });
     $('#wp-body').on('click', '.cr-del', function () {
-      var id = $(this).closest('tr').data('id');
-      W.confirm('Delete this custom rule?', function (i) {
+      var x = byId(this);
+      W.confirm('Are you sure you want to delete this rule?', { title: 'Delete rule [' + esc(x.name) + ']' }, function (i) {
         layer.close(i);
-        post('custom_del', { id: id }, function (rr) {
+        post('custom_del', { id: x.id }, function (rr) {
           layer.msg(rr.msg, { icon: rr.status ? 1 : 2 });
           if (rr.status) route();
         });
@@ -137,121 +137,154 @@
     });
   }
 
-  // one condition row inside the dialog
+  /* ---- rule builder rows ---- */
   function crCondRow(c) {
-    c = c || { field: 'uri', op: 'contains', extra: '', value: '' };
-    var fopts = CR_FIELDS.map(function (f) {
-      return '<option value="' + f.v + '"' + (f.v === c.field ? ' selected' : '') + '>' + f.t + '</option>';
-    }).join('');
-    return '<div class="cr-cond" style="display:flex;gap:6px;align-items:flex-start;margin-bottom:8px;flex-wrap:wrap">' +
-      '<select class="wp-in cr-c-field" style="width:150px">' + fopts + '</select>' +
-      '<input class="wp-in cr-c-extra" placeholder="name" style="width:110px" value="' + esc(c.extra || '') + '">' +
-      '<select class="wp-in cr-c-op" style="width:150px"></select>' +
-      '<input class="wp-in cr-c-value" placeholder="value" style="flex:1;min-width:140px" value="' + esc(c.value || '') + '">' +
-      '<span class="wp-btn cr-c-del" style="padding:6px 10px">&times;</span></div>';
+    c = c || { field: '', op: '', extra: '', value: '' };
+    return '<div class="cr-row"><div class="field"><select class="wp-in cr-c-field">' +
+      '<option value="">Please select</option>' + CR_FIELDS.map(function (f) {
+        return '<option value="' + f.v + '"' + (f.v === c.field ? ' selected' : '') + '>' + f.t + '</option>';
+      }).join('') + '</select></div>' +
+      '<div class="condition"><input class="wp-in cr-c-extra" placeholder="Name" value="' + esc(c.extra || '') + '">' +
+      '<select class="wp-in cr-c-op"' + (c.field ? '' : ' disabled') + '></select></div>' +
+      '<div class="content"><input class="wp-in cr-c-value" spellcheck="false" value="' + esc(c.value || '') + '"' +
+      (c.field ? '' : ' disabled') + '></div>' +
+      '<div class="btns"><span class="wp-btn sm cr-and">And</span><span class="wp-btn sm cr-or">Or</span>' +
+      '<span class="cr-x" title="Delete">&times;</span></div></div>';
   }
-  // sync a condition row's op list + which inputs show, from its field
+  // sync a row's operator list + inputs from its field
   function crSyncRow($row, presetOp) {
-    var f = crFieldOf($row.find('.cr-c-field').val());
+    var fv = $row.find('.cr-c-field').val();
+    if (!fv) { $row.find('.cr-c-op').html('').prop('disabled', true); $row.find('.cr-c-value').prop('disabled', true); return; }
+    var f = crFieldOf(fv);
     var ops = (f.kind === 'ipset' || f.kind === 'country') ? CR_SET_OPS : CR_TEXT_OPS;
-    $row.find('.cr-c-op').html(ops.map(function (o) {
+    $row.find('.cr-c-op').prop('disabled', false).html(ops.map(function (o) {
       return '<option value="' + o.v + '"' + (o.v === presetOp ? ' selected' : '') + '>' + o.t + '</option>';
     }).join(''));
-    $row.find('.cr-c-extra').css('display', f.kind === 'named' ? '' : 'none')
-      .attr('placeholder', f.v === 'header' ? 'header name' : 'param name');
+    $row.toggleClass('named', f.kind === 'named');
+    $row.find('.cr-c-extra').attr('placeholder', f.v === 'header' ? 'Header name' : 'Parameter name');
     var op = $row.find('.cr-c-op').val();
-    var noVal = (op === 'exists' || op === 'nexists');
-    $row.find('.cr-c-value').css('display', noVal ? 'none' : '')
-      .attr('placeholder', (f.kind === 'ipset') ? '1.2.3.0/24, 5.5.5.5'
-        : (f.kind === 'country') ? 'TR, US, DE' : 'value');
+    $row.find('.cr-c-value').prop('disabled', op === 'exists' || op === 'nexists').attr('placeholder', f.ph);
   }
 
   function crDialog(rule) {
     var r = S.crMeta, edit = !!rule;
-    rule = rule || { name: '', site: '', action: 'block', status: 403,
-                     conds: [{ field: 'uri', op: 'contains', extra: '', value: '' }] };
-    var sites = (r.sites || []).map(function (s) {
-      return '<option value="' + esc(s) + '"' + (s === rule.site ? ' selected' : '') + '>' + esc(s) + '</option>';
-    }).join('');
-    var codes = CR_STATUS.map(function (s) {
-      return '<option value="' + s.code + '"' + (s.code === rule.status ? ' selected' : '') + '>' + s.name + '</option>';
-    }).join('');
+    rule = rule || { name: '', sites: [], action: 'block', status: 403, conds: [] };
+    var resp = rule.action === 'code' ? 'code:' + rule.status : 'block';
+    var op = rule.action === 'allow' ? 'allow' : rule.action === 'verify' ? 'verify' : 'deny';
 
-    var h = '<div class="wp-modal">' +
-      '<div class="wp-mod-head">' +
-        '<div class="wp-mod-site">' + (edit ? 'Edit' : 'Add') + ' custom interception</div>' +
-        '<div class="wp-mod-meta">All conditions must match for the action to fire.</div>' +
-      '</div>' +
-      '<div class="wp-mod-body">' +
-        '<div class="wp-mod-sec"><div class="wp-mod-sec-t">Rule</div>' +
-          '<div class="wp-mod-row"><div class="wp-mod-lbl">Rule name</div>' +
-            '<div class="wp-mod-ctl"><input class="wp-in" id="cr-name" style="min-width:250px" value="' + esc(rule.name) + '" placeholder="e.g. block_admin"></div>' +
-            '<div class="wp-mod-hint"></div></div>' +
-          '<div class="wp-mod-row"><div class="wp-mod-lbl">Website</div>' +
-            '<div class="wp-mod-ctl"><select class="wp-in" id="cr-site" style="min-width:250px">' + sites + '</select></div>' +
-            '<div class="wp-mod-hint"></div></div>' +
-        '</div>' +
-        '<div class="wp-mod-sec"><div class="wp-mod-sec-t">Conditions <span style="text-transform:none;font-weight:400;color:var(--wp-text3)">(all must match)</span></div>' +
-          '<div id="cr-conds"></div>' +
-          '<span class="wp-btn" id="cr-add-cond" style="margin-top:4px">+ Add condition</span>' +
-        '</div>' +
-        '<div class="wp-mod-sec"><div class="wp-mod-sec-t">Action</div>' +
-          '<div class="wp-mod-row"><div class="wp-mod-lbl">When matched</div>' +
-            '<div class="wp-mod-ctl"><select class="wp-in" id="cr-action" style="min-width:250px">' +
-              '<option value="block"' + (rule.action === 'block' ? ' selected' : '') + '>Intercept — default blocked page</option>' +
-              '<option value="code"' + (rule.action === 'code' ? ' selected' : '') + '>Intercept — custom status code</option>' +
-              '<option value="allow"' + (rule.action === 'allow' ? ' selected' : '') + '>Allow — whitelist, skip all checks</option>' +
-            '</select></div>' +
-            '<div class="wp-mod-hint"></div></div>' +
-          '<div class="wp-mod-row" id="cr-code-row"><div class="wp-mod-lbl">Status code</div>' +
-            '<div class="wp-mod-ctl"><select class="wp-in" id="cr-code" style="min-width:250px">' + codes + '</select></div>' +
-            '<div class="wp-mod-hint"></div></div>' +
-        '</div>' +
-      '</div>' +
-      '<div class="wp-mod-foot">' +
-        '<span class="wp-btn" id="cr-cancel">Cancel</span>' +
-        '<span class="wp-btn primary" id="cr-ok">' + (edit ? 'Save' : 'Add') + '</span>' +
-      '</div></div>';
+    var h = '<div class="wp-g-dlg wp-tl wp-cr">' +
+      '<div class="wp-tl-t">When website</div>' +
+      '<div class="wp-g-row"><div class="wp-g-rl">Apply to website</div><div class="wp-g-rc">' +
+      '<div class="wp-ms" id="cr-sites" style="width:320px"><div class="wp-ms-box"></div><div class="wp-ms-drop"></div></div>' +
+      '<span class="wp-btn" id="cr-copy-dom" style="margin-left:8px;height:30px">Copy domain</span></div></div>' +
+      '<div class="wp-g-row"><div class="wp-g-rl">Rule name</div><div class="wp-g-rc"><input class="wp-in" id="cr-name" ' +
+      'style="width:320px" spellcheck="false" placeholder="Please enter the rule name" value="' + esc(rule.name) + '"></div></div>' +
+      '<div class="wp-tl-t">When matching rules</div>' +
+      '<div class="cr-builder"><div class="cr-row cr-head"><div class="field">Type</div><div class="condition">Rule</div>' +
+      '<div class="content">Match content</div><div class="btns"></div></div><div id="cr-groups"></div></div>' +
+      '<div class="wp-tl-t">Action</div>' +
+      '<div class="wp-g-row"><div class="wp-g-rl">Operation Options</div><div class="wp-g-rc">' +
+      '<select class="wp-in" id="cr-op" style="width:320px"><option value="deny"' + (op === 'deny' ? ' selected' : '') + '>Intercept</option>' +
+      '<option value="allow"' + (op === 'allow' ? ' selected' : '') + '>Release</option>' +
+      '<option value="verify"' + (op === 'verify' ? ' selected' : '') + '>Verification</option></select></div></div>' +
+      '<div class="wp-g-row" id="cr-resp-row"><div class="wp-g-rl" id="cr-resp-l">Response page</div><div class="wp-g-rc">' +
+      '<select class="wp-in" id="cr-resp" style="width:320px"></select></div></div></div>';
 
-    var idx = W.open({ type: 1, title: false, closeBtn: 1, area: ['760px', '640px'], content: h });
+    var getSites;
+    var idx = W.open({
+      type: 1, title: edit ? 'Edit custom interception rule [' + esc(rule.name) + ']' : 'Add custom interception rule',
+      area: ['800px', 'auto'], btn: ['Confirm', 'Cancel'], content: h,
+      success: function () {
+        getSites = W.siteMS('cr-sites', r.sites || [], rule.sites || (rule.site ? [rule.site] : []));
+        // conditions grouped by g, in order
+        var groups = [], at = {};
+        (rule.conds || []).forEach(function (c) {
+          var g = c.g || 0;
+          if (at[g] === undefined) { at[g] = groups.length; groups.push([]); }
+          groups[at[g]].push(c);
+        });
+        if (!groups.length) groups.push([null]);
+        groups.forEach(function (g) {
+          var $g = $('<div class="cr-group"></div>').appendTo('#cr-groups');
+          g.forEach(function (c) { addRow($g, null, c); });
+        });
+        decorate();
+        syncResp();
+        $('#cr-op').on('change', syncResp);
+      },
+      yes: function () {
+        var conds = [], bad = false;
+        $('#cr-groups .cr-group').each(function (gi) {
+          $(this).find('.cr-row').each(function () {
+            var $r = $(this), f = $r.find('.cr-c-field').val(), o = $r.find('.cr-c-op').val(), v = $r.find('.cr-c-value').val();
+            if (!f || !o || (v === '' && o !== 'exists' && o !== 'nexists')) bad = true;
+            conds.push({ field: f, op: o, extra: $r.find('.cr-c-extra').val(), value: v, g: gi });
+          });
+        });
+        if (bad) { layer.msg('Please improve the matching rules', { icon: 2 }); return; }
+        var o = $('#cr-op').val(), rv = $('#cr-resp').val() || 'block';
+        var act = o === 'allow' ? 'allow' : o === 'verify' ? 'verify' : (rv === 'block' ? 'block' : 'code');
+        // rname/act, not name/action: the panel's router owns those two keys
+        var d = { rname: $('#cr-name').val() || '', sites: JSON.stringify(getSites()), act: act,
+                  status_code: rv.indexOf('code:') === 0 ? rv.slice(5) : 403, conds: JSON.stringify(conds) };
+        if (edit) d.id = rule.id;
+        post(edit ? 'custom_edit' : 'custom_add', d, function (rr) {
+          layer.msg(rr.msg, { icon: rr.status ? 1 : 2 });
+          if (rr.status) { layer.close(idx); route(); }
+        });
+      }
+    });
 
-    function addCond(c) {
-      var $row = $(crCondRow(c)).appendTo('#cr-conds');
+    function syncResp() {
+      var o = $('#cr-op').val();
+      $('#cr-resp-row').toggle(o !== 'allow');
+      $('#cr-resp-l').text(o === 'verify' ? 'Verification method' : 'Response page');
+      $('#cr-resp').html(o === 'verify' ? '<option value="block">Browser verification</option>' : CR_RESP.map(function (x) {
+        return '<option value="' + x[0] + '"' + (x[0] === resp ? ' selected' : '') + '>' + x[1] + '</option>';
+      }).join(''));
+    }
+    function addRow($g, $after, c) {
+      var $row = $(crCondRow(c));
+      if ($after) $row.insertAfter($after); else $row.appendTo($g);
       crSyncRow($row, c && c.op);
     }
-    (rule.conds || []).forEach(addCond);
-    $('#cr-add-cond').on('click', function () { addCond(null); });
-    $('#cr-conds').on('change', '.cr-c-field', function () { crSyncRow($(this).closest('.cr-cond')); });
-    $('#cr-conds').on('change', '.cr-c-op', function () { crSyncRow($(this).closest('.cr-cond'), $(this).val()); });
-    $('#cr-conds').on('click', '.cr-c-del', function () {
-      if ($('.cr-cond').length > 1) $(this).closest('.cr-cond').remove();
-      else layer.msg('A rule needs at least one condition', { icon: 0 });
+    // And / Or separators, the Or button only on the very last row,
+    // and no delete when only one row is left
+    function decorate() {
+      $('#cr-groups .cr-sep').remove();
+      $('#cr-groups .cr-group').each(function (gi) {
+        if (gi) $(this).before('<div class="cr-sep or"><span>Or</span></div>');
+        $(this).find('.cr-row').each(function (ri) {
+          if (ri) $(this).before('<div class="cr-sep and"><span>And</span></div>');
+        });
+      });
+      var rows = $('#cr-groups .cr-row');
+      rows.find('.cr-or').hide(); rows.last().find('.cr-or').show();
+      rows.find('.cr-x').toggle(rows.length > 1);
+    }
+    $('#cr-groups').on('change', '.cr-c-field', function () { crSyncRow($(this).closest('.cr-row')); });
+    $('#cr-groups').on('change', '.cr-c-op', function () { crSyncRow($(this).closest('.cr-row'), $(this).val()); });
+    $('#cr-groups').on('click', '.cr-and', function () {
+      var $row = $(this).closest('.cr-row');
+      addRow($row.closest('.cr-group'), $row, null); decorate();
     });
-
-    function syncCode() { $('#cr-code-row').css('display', $('#cr-action').val() === 'code' ? '' : 'none'); }
-    syncCode();
-    $('#cr-action').on('change', syncCode);
-    $('#cr-cancel').on('click', function () { layer.close(idx); });
-    $('#cr-ok').on('click', function () {
-      var conds = [];
-      $('.cr-cond').each(function () {
-        var $r = $(this);
-        conds.push({ field: $r.find('.cr-c-field').val(), op: $r.find('.cr-c-op').val(),
-                     extra: $r.find('.cr-c-extra').val(), value: $r.find('.cr-c-value').val() });
-      });
-      // rname/act, not name/action: the panel's router owns those two keys
-      // (posting them is what produced "Specific parameters are invalid!")
-      var payload = { rname: $('#cr-name').val(), site: $('#cr-site').val(),
-                      act: $('#cr-action').val(), status_code: $('#cr-code').val(),
-                      conds: JSON.stringify(conds) };
-      if (edit) payload.id = rule.id;
-      post(edit ? 'custom_edit' : 'custom_add', payload, function (rr) {
-        layer.msg(rr.msg, { icon: rr.status ? 1 : 2 });
-        if (rr.status) { layer.close(idx); route(); }
-      });
+    $('#cr-groups').on('click', '.cr-or', function () {
+      addRow($('<div class="cr-group"></div>').appendTo('#cr-groups'), null, null); decorate();
+    });
+    $('#cr-groups').on('click', '.cr-x', function () {
+      var $g = $(this).closest('.cr-group');
+      $(this).closest('.cr-row').remove();
+      if (!$g.find('.cr-row').length) $g.remove();
+      decorate();
+    });
+    $('#cr-copy-dom').on('click', function () {
+      var s = getSites().filter(function (x) { return x !== '*'; });
+      if (!s.length) { layer.msg('No replicable domain names', { icon: 2 }); return; }
+      var t = $('<textarea>').val(s.join('\n')).appendTo('body').select();
+      try { document.execCommand('copy'); layer.msg('Copied', { icon: 1 }); } catch (e) {}
+      t.remove();
     });
   }
-
 
   // exports
   W.CR_FIELDS = CR_FIELDS;
