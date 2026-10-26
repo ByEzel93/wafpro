@@ -474,9 +474,13 @@ local function parse_traffic(path)
     for _, line in ipairs(read_lines(path)) do
         local f = split(line, '|')
         if f[1] and f[1] ~= '' and f[8] == '1' then
+            -- 2.2 adds: f9 window seconds, f10 max requests in the window,
+            -- f11 what 'content' returns (html|json|444)
             local r = { id = f[1], site = f[2], url = f[3], dim = f[4],
                         rate = tonumber(f[5]) or 10, action = f[6],
-                        status = tonumber(f[7]) or 503 }
+                        status = tonumber(f[7]) or 503,
+                        win = tonumber(f[9]) or 0, winmax = tonumber(f[10]) or 0,
+                        ret = f[11] or 'html' }
             rules[#rules + 1] = r
             local b = by_site[f[2]]
             if not b then b = {}; by_site[f[2]] = b end
@@ -594,6 +598,8 @@ function _M.load()
         site_domains = parse_site_domains(RULE_DIR .. 'domains.txt'),
         secret = (read_lines(RULE_DIR .. 'secret.txt'))[1] or 'wafpro',
         block_html = read_all(RULE_DIR .. 'block.html'),
+        limit_html = read_all(RULE_DIR .. 'limit.html'),
+        limit_json = read_all(RULE_DIR .. 'limit.json'),
         challenge_html = read_all(RULE_DIR .. 'challenge.html'),
         ua_white = read_lines(RULE_DIR .. 'ua_white.txt'),
         ua_black = read_lines(RULE_DIR .. 'ua_black.txt'),
@@ -1062,24 +1068,50 @@ local function traffic_check(site, ips, uri, ua)
     if not dict then return end
     local now = ngx.time()
 
+    local function count(key, ttl)
+        local n = dict:incr(key, 1)
+        if not n then dict:set(key, 1, ttl); n = 1 end
+        return n
+    end
     local function apply(rs)
         for i = 1, #rs do
             local r = rs[i]
             if match_any({ r.url }, uri) then
-                local key = 't:' .. r.id .. ':' .. ips
-                if r.dim == 'ipua' then key = key .. ':' .. (ua and #ua > 0 and ua or '-') end
-                key = key .. ':' .. now
-                local n = dict:incr(key, 1)
-                if not n then dict:set(key, 1, 2); n = 1 end
-                if n > r.rate then
+                -- who shares a budget: one IP, one IP+UA, or everybody
+                local who = r.dim == 'all' and '*' or ips
+                if r.dim == 'ipua' then who = who .. ':' .. (ua and #ua > 0 and ua or '-') end
+                local base = 't:' .. r.id .. ':' .. who
+                local why
+                if r.rate > 0 then
+                    local n = count(base .. ':' .. now, 2)
+                    if n > r.rate then why = fmt('%s %d/s > %d', r.url, n, r.rate) end
+                end
+                if not why and r.win > 0 and r.winmax > 0 then
+                    -- fixed window of r.win seconds
+                    local n = count(base .. ':w' .. math.floor(now / r.win), r.win + 1)
+                    if n > r.winmax then why = fmt('%s %d in %ds > %d', r.url, n, r.win, r.winmax) end
+                end
+                if why then
                     if r.action == 'block' then
-                        ban(ips, 600, site, 'traffic-block', n)
-                        return deny(ips, site, 'traffic-block',
-                                    fmt('%s %d/s > %d', r.url, n, r.rate),
-                                    tonumber(state.cfg.black_status) or 444)
+                        -- an 'all IPs' rule bans the client that tipped it over
+                        ban(ips, 600, site, 'traffic-block', 0)
+                        return deny(ips, site, 'traffic-block', why, tonumber(state.cfg.black_status) or 444)
                     end
-                    return deny(ips, site, 'traffic',
-                                fmt('%s %d/s > %d', r.url, n, r.rate), r.status)
+                    if r.action == 'content' then
+                        if r.ret == '444' then return deny(ips, site, 'traffic', why, 444) end
+                        log_block(ips, site, 'traffic', why, 429)
+                        ngx.status = 429
+                        if r.ret == 'json' then
+                            ngx.header['Content-Type'] = 'application/json; charset=utf-8'
+                            ngx.print(state.limit_json or '{"code":429,"msg":"Too many requests"}')
+                        else
+                            ngx.header['Content-Type'] = 'text/html; charset=utf-8'
+                            ngx.print(state.limit_html or 'Too many requests')
+                        end
+                        ngx.header['Cache-Control'] = 'no-store'
+                        return ngx.exit(429)
+                    end
+                    return deny(ips, site, 'traffic', why, r.status)
                 end
             end
         end

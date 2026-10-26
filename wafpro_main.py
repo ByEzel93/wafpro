@@ -991,6 +991,21 @@ h1{margin:0 0 8px;font-size:19px}p{margin:0;color:#5c6470}
 <p>This only takes a moment. Please enable JavaScript and cookies if this page does not continue.</p>
 </div><script>{script}</script></body></html>
 """,
+        # Traffic Limit "Return Web Content" (sent with 429)
+        'limit': """<!doctype html>
+<html lang="en"><head><meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Too many requests</title>
+<style>
+body{margin:0;min-height:100vh;display:flex;align-items:center;justify-content:center;
+  background:#f5f7fa;font:14px/1.6 -apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,sans-serif;color:#303133}
+.b{background:#fff;border-radius:8px;padding:40px 48px;box-shadow:0 2px 12px rgba(0,0,0,.06);text-align:center;max-width:460px}
+h1{font-size:22px;margin:0 0 10px;color:#e6a23c}
+p{margin:0;color:#606266}
+</style></head><body><div class="b"><h1>Too many requests</h1>
+<p>The website is receiving more traffic than it can serve right now. Please try again in a moment.</p>
+</div></body></html>""",
+        'limitjson': '{"code": 429, "msg": "Too many requests, please try again later"}',
     }
 
     def _page(self, kind):
@@ -1133,6 +1148,8 @@ h1{margin:0 0 8px;font-size:19px}p{margin:0;color:#5c6470}
         self._w('waiting.html', self._waiting_html())
         self._w('block.html', self._page('block'))
         self._w('challenge.html', self._page('challenge'))
+        self._w('limit.html', self._page('limit'))
+        self._w('limit.json', self._page('limitjson'))
         self._w('secret.txt', self._secret('secret.key'))
         self._w('test_token.txt', self._secret('test.key'))
         self._w('unban.txt', (public.readFile(self.UNBAN_FILE) or '')
@@ -1154,12 +1171,16 @@ h1{margin:0 0 8px;font-size:19px}p{margin:0;color:#5c6470}
                 self._w(r['id'] + '.html', page)
         self._w('region.txt', '\n'.join(rl))
 
-        # traffic limit: id|site|url|dim|rate|action|status|open
+        # traffic limit: id|site|url|dim|rate|action|status|open|win|winmax|ret
+        # (one line per site the rule covers)
         tl = []
         for t in self._traffic():
-            tl.append('|'.join([t['id'], t['site'], str(t['url']).replace('|', ''),
-                                t['dim'], str(int(t['rate'])), t['action'],
-                                str(int(t['status'])), '1' if t.get('open') else '0']))
+            c = self._traffic_compiled(t)
+            for site in c['sites']:
+                tl.append('|'.join([t['id'], site, c['url'].replace('|', ''), c['dim'],
+                                    str(c['rate']), c['action'], str(c['status']),
+                                    '1' if t.get('open') else '0', str(c['win']),
+                                    str(c['winmax']), c['ret']]))
         self._w('traffic.txt', '\n'.join(tl))
 
         # custom rules -> multi-line format the engine reads:
@@ -2795,13 +2816,50 @@ h1{margin:0 0 8px;font-size:19px}p{margin:0;color:#5c6470}
     # specific URL per second, then return a status code or block the IP.
     # ----------------------------------------------------------------
     TRAFFIC_JSON = PLUGIN_PATH + 'traffic_rules.json'
-    TRAFFIC_DIMS = ('ip', 'ipua')
-    TRAFFIC_ACTIONS = ('status', 'block')
-    TRAFFIC_STATUS = (503, 502, 444, 403)
+    # stock model: condition 1 = single IP, 2 = IP+UA, 3 = all IPs together
+    TRAFFIC_CONDS = {1: 'ip', 2: 'ipua', 3: 'all'}
+    TRAFFIC_ACTIONS = ('status_403', 'status_404', 'status_502', 'status_503', 'content', 'drop')
+    TRAFFIC_RETURNS = ('html', 'json', '444')
 
     def _traffic(self):
         r = self._read_json(self.TRAFFIC_JSON, [])
-        return r if isinstance(r, list) else []
+        return [self._traffic_upgrade(x) for x in r] if isinstance(r, list) else []
+
+    def _traffic_upgrade(self, t):
+        '''2.1 rules (site/url regex/dim/rate/action status|block) -> 2.2 fields.'''
+        if 'cond' in t:
+            return t
+        t = dict(t)
+        t['sites'] = [t.get('site', '')]
+        t['types'] = 'url'
+        t['path'] = t.get('url', '')
+        t['regex'] = True                  # 2.1 stored a regex, keep matching it as one
+        t['cond'] = {'ip': 1, 'ipua': 2}.get(t.get('dim'), 1)
+        t['req'] = int(t.get('rate') or 0)
+        t['cnt_time'] = 0
+        t['cnt_num'] = 0
+        t['action'] = 'drop' if t.get('action') == 'block' else 'status_{}'.format(
+            t.get('status') if t.get('status') in (403, 404, 502, 503) else 503)
+        t['ret'] = 'html'
+        return t
+
+    def _traffic_compiled(self, t):
+        '''What the engine needs from a rule.'''
+        if t.get('types') == 'all':
+            url = '^/'
+        elif t.get('regex'):
+            url = t.get('path', '')
+        else:
+            # a path entered in the form matches that URL and everything below it
+            url = '^' + re.escape(t.get('path', ''))
+        act = t.get('action', 'status_503')
+        return {'sites': t.get('sites') or [], 'url': url,
+                'dim': self.TRAFFIC_CONDS.get(t.get('cond'), 'ip'),
+                'rate': int(t.get('req') or 0),
+                'win': int(t.get('cnt_time') or 0), 'winmax': int(t.get('cnt_num') or 0),
+                'action': 'block' if act == 'drop' else 'content' if act == 'content' else 'status',
+                'status': int(act.split('_')[1]) if act.startswith('status_') else 503,
+                'ret': t.get('ret') if t.get('ret') in self.TRAFFIC_RETURNS else 'html'}
 
     def _traffic_save(self, rules):
         public.writeFile(self.TRAFFIC_JSON, json.dumps(rules))
@@ -2812,40 +2870,61 @@ h1{margin:0 0 8px;font-size:19px}p{margin:0;color:#5c6470}
                 'sites': self._panel_sites(),
                 'engine': self.region_engine_state()}
 
+    def _int(self, get, key):
+        try:
+            return int(getattr(get, key, 0) or 0)
+        except Exception:
+            return 0
+
     def _traffic_validate(self, get):
+        '''Same checks as the stock form.'''
         name = (self._arg(get, 'name') or '').strip()
         if not name:
-            return None, 'Rule name is required'
-        site = (getattr(get, 'site', '') or '').strip()
-        if not site:
-            return None, 'Select a website'
-        url = (getattr(get, 'url', '') or '').strip()
-        if not url:
-            return None, 'URL pattern is required'
+            return None, 'Please enter the rule name'
         try:
-            re.compile(url)
-        except Exception as e:
-            return None, 'Invalid URL pattern: {}'.format(e)
-        dim = getattr(get, 'dim', 'ip')
-        if dim not in self.TRAFFIC_DIMS:
-            return None, 'Bad dimension'
-        try:
-            rate = int(getattr(get, 'rate', 0))
+            sites = json.loads(getattr(get, 'sites', '') or '[]')
         except Exception:
-            rate = 0
-        if rate < 1:
-            return None, 'Rate must be at least 1 per second'
-        action = self._arg(get, 'action', 'status')
+            sites = []
+        known = set(self._panel_sites())
+        sites = ['*'] if '*' in sites else sorted({x for x in sites if x in known})
+        if not sites:
+            return None, 'Please select a website'
+        types = getattr(get, 'types', 'url')
+        path = (getattr(get, 'url', '') or '').strip()
+        if types == 'all':
+            path = '/'
+        else:
+            types = 'url'
+            if not path:
+                return None, 'Please enter URL'
+            if path == '/':
+                return None, 'URL cannot be /'
+            if not path.startswith('/'):
+                return None, 'URL must start with /'
+        cond = self._int(get, 'condition')
+        if cond not in self.TRAFFIC_CONDS:
+            return None, 'Bad access restriction'
+        req = self._int(get, 'req')
+        cnt_time = self._int(get, 'cnt_time')
+        cnt_num = self._int(get, 'cnt_num')
+        if not req and not cnt_time:
+            return None, 'Please select at least one restriction condition'
+        if getattr(get, 'req', '') not in ('', None) and req < 1 and not cnt_time:
+            return None, 'Access limit per second cannot be less than 1'
+        if cnt_time or cnt_num:
+            if cnt_time < 30:
+                return None, 'Time access limit cannot be less than 30 seconds'
+            if cnt_num < 20:
+                return None, 'Time access limit count cannot be less than 20 times'
+        action = self._arg(get, 'action', 'status_503')
         if action not in self.TRAFFIC_ACTIONS:
             return None, 'Bad action'
-        try:
-            status = int(getattr(get, 'status_code', 503))
-        except Exception:
-            status = 503
-        if status not in self.TRAFFIC_STATUS:
-            return None, 'Unsupported status code'
-        return {'name': name, 'site': site, 'url': url, 'dim': dim,
-                'rate': rate, 'action': action, 'status': status}, None
+        ret = getattr(get, 'ret', 'html')
+        if ret not in self.TRAFFIC_RETURNS:
+            ret = 'html'
+        return {'name': name, 'sites': sites, 'site': sites[0], 'types': types, 'path': path,
+                'cond': cond, 'req': max(req, 0), 'cnt_time': cnt_time, 'cnt_num': cnt_num,
+                'action': action, 'ret': ret}, None
 
     def traffic_add(self, get):
         rule, err = self._traffic_validate(get)
@@ -2856,8 +2935,8 @@ h1{margin:0 0 8px;font-size:19px}p{margin:0;color:#5c6470}
         rules = self._traffic()
         rules.append(rule)
         self._traffic_save(rules)
-        public.WriteLog('WAF Pro', 'Traffic rule added: {} on {} ({}/s)'.format(
-            rule['name'], rule['site'], rule['rate']))
+        public.WriteLog('WAF Pro', 'Traffic rule added: {} on {}'.format(
+            rule['name'], ','.join(rule['sites'])))
         return public.returnMsg(True, 'Traffic restriction added')
 
     def traffic_edit(self, get):

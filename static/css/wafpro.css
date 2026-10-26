@@ -565,3 +565,13 @@ select.wp-in{height:32px}
 /* naive-ui select: no native arrow, a thin chevron instead */
 .wp-g-dlg select.wp-in, #wafpro-app select.wp-in{appearance:none;-webkit-appearance:none;padding-right:28px;background:#fff
   url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 16 16'%3E%3Cpath d='M4 6l4 4 4-4' fill='none' stroke='%23999' stroke-width='1.4'/%3E%3C/svg%3E") no-repeat right 8px center/14px}
+
+/* ================= Traffic Limit dialog (stock form) ================= */
+.wp-tl{padding:24px !important}
+.wp-tl-t{font-weight:600;color:#333639;margin:4px 0 10px}
+.wp-tl .wp-g-row + .wp-tl-t{margin-top:12px}
+.wp-tl .wp-g-rl{width:130px}
+.wp-tl .wp-in{height:30px;border-radius:4px;border-color:#e0e0e6}
+.wp-tl .wp-tl-n{width:60px;margin:0 8px;text-align:center}
+.wp-tl .wp-in:disabled{background:#fafafc;color:#c2c2c2}
+.wp-tl .wp-g-rc{flex-wrap:nowrap;white-space:nowrap}
