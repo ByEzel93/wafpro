@@ -1,168 +1,171 @@
-# WAF Pro — Standalone Nginx WAF for aaPanel
+# WAF Pro
 
-A self-contained Web Application Firewall plugin for **aaPanel**, with a modern
-dashboard and a full protection engine that runs directly in nginx. It does
-**not** depend on aaPanel's free WAF or the paid btwaf — install it and it
-works on its own.
+A web application firewall plugin for aaPanel (nginx). It has its own Lua
+engine, so it doesn't need aaPanel's free WAF or the paid btwaf. You install the
+plugin, wire the engine into nginx from the Global tab, and turn protection on
+per site.
 
-> ⚠️ **Please read the [Disclaimer](#disclaimer) before installing.** This is a
-> community project shared as-is. It has **not** been through rigorous,
-> long-term production testing.
+The UI follows the layout of aaPanel 8's own WAF on purpose, so anyone who has
+used that one will find things where they expect them.
 
----
+Please read the [disclaimer](#disclaimer) first. This is a side project, not a
+product, and it has seen far less real traffic than a WAF normally should.
 
-## What it does
+## What's in it
 
-WAF Pro ships its own lua engine (`/www/server/wafpro/`) wired into nginx, plus
-a Python + HTML management UI as an aaPanel plugin. Everything is driven from
-one dashboard:
+- **Overview**: today's requests and blocks, a 5-minute real-time view (QPS,
+  bandwidth, origin latency), request/traffic trends, access and block map with
+  source ranking, client / status code / referrer / traffic / page top lists,
+  block types and the latest block events.
+- **WebSite**: per-site switches (CC, fake spider, CDN, smart CC, crawl
+  protection, waiting room...) and a Modify dialog with everything else for that
+  site: filters, uploads, forbidden URLs and extensions, anti-leech, protected
+  URLs, API defense, content replace, URL CC, request methods.
+- **Blockade**: interception records with details (the rule that matched and
+  the value that triggered it), IP ban history with unblock, and a rule hit log
+  for custom rules.
+- **Black/White list**: IP (v4 ranges, v6, CIDR), User-Agent and URL lists, with
+  import/export.
+- **Region**: country rules per site or for all sites, with an optional custom
+  response page per rule.
+- **Traffic Limit**: rate limits per URL or for the whole site, per IP, IP+UA or
+  all clients together; per-second and "N requests in T seconds" limits.
+- **Custom rules**: AND/OR conditions on IP, country, method, URI, parameters,
+  headers, UA, referer and cookies. Actions are block (page or status code),
+  allow, or browser verification.
+- **Exclusive Rules**: virtual patches for widely exploited CVEs (PHP-CGI,
+  ThinkPHP, Laravel Ignition, Spring4Shell, Confluence OGNL and others), each
+  one switchable.
+- **Webshell**: background scan of site files, with quarantine and restore.
+- **Attack Map** and **Report**: where attacks come from, by IP and by URI.
+- **Global**: engine wiring and health, module switches, CC defaults, auto-ban,
+  malicious IP / datacenter lists, response codes, PHP2Shell limits, rule set
+  editor, block pages, config export/import.
 
-| Tab | What it covers |
-|-----|----------------|
-| **Overview** | Traffic / attack charts by day, real-time QPS and origin response, access & block map, attacked domains / traffic / visited pages TOP10, intercept types |
-| **WebSite** | Per-site switches (domains detected automatically, incl. Node projects and wildcards): GET/POST/Cookie/UA filters, scanner, N-day patches, PHP2Shell guard, form-data check, non-browser check, IDC interception, CC defense (block or browser-check), smart CC, crawl limit, waiting room, CDN, fake spider, file/upload/PHP-path rules — plus per-site **Rules**: forbidden URL, anti-leech, protected URL, API defense, content replace |
-| **Blockade** | Interception records, banned IPs (auto-ban, CC, traffic; escalating) with unban, rule-hit stats |
-| **Black/White List** | IP white/black (IPv4 + IPv6, ranges, CIDR), UA white/black, URL white/black, URL keywords |
-| **Region** | Per-rule country blocking (allow-list / block-list), per site |
-| **Traffic Limit** | Per-URL rate limiting (per IP or IP+UA), 503/502/block actions |
-| **Custom rules** | Multi-condition rules (IP, country, method, URI, header, UA, …) with allow/block/status actions |
-| **Webshell** | Background scan of site files for webshell signatures; view, quarantine/restore, mark safe |
-| **Attack Map** | World map of attackers with animated lines to the server |
-| **Report** | Attack analytics by IP / URI, protection-type donut, country leaderboard, date range + search |
-| **Global** | Master switch, engine wiring + health/update, auto-ban, escalating bans, malicious-IP / datacenter / verified-crawler lists, HTTP methods, header and parameter limits, response codes, PHP2Shell limits, filter rule-set editor, block & check pages, sensitive words, config export/import/restore |
+There is also a **Simulated attack** button that sends attack-shaped requests to
+your sites through nginx and shows which rule stopped each one.
 
-**Simulated attack** (top right) sends real attack-shaped requests to each site
-through nginx and shows which rule stopped each one — and flags any PHP build on
-the server that lacks the PHP2Shell fix.
+## How detection works
 
-### Design notes (how it's built)
+Requests go through IP lists, UA/URL lists, custom rules, region and CC first,
+then the content checks:
 
-- **Dependency-free lua engine.** No cjson, no ffi, no external resty modules.
-  Plain Lua 5.1 so it runs on a stock nginx + `lua_nginx_module` build.
-- **Binary-search IP matching.** The panel compiles country/IP ranges into a
-  packed, sorted binary blob (`8 bytes/range`) that the engine binary-searches —
-  ~17 comparisons instead of a linear scan over 100k+ ranges.
-- **No nginx reload on config change.** The engine polls a `version` file every
-  couple of seconds and hot-reloads its rule files. Saving a setting in the UI
-  takes effect within seconds, without restarting nginx.
-- **Panel-native data.** Country database and GeoIP come from aaPanel's own
-  data files, so no other WAF plugin is required.
-- **Fails open.** The request hot path runs under `pcall`; if the engine ever
-  errors, traffic passes rather than 500-ing.
+- **Keyword rules** (regex, editable in Global) run on each decoded parameter
+  name and value separately, not on the whole query string. In form posts the
+  values of free-text fields (`content`, `body`, `message`, `comment` and
+  similar) are skipped by these rules, because blog posts and tickets
+  legitimately contain code.
+- **SQL injection and XSS** are checked per parameter by
+  [libinjection](https://github.com/libinjection/libinjection). The installer
+  compiles it with gcc and the engine calls it through LuaJIT's FFI. If there is
+  no compiler, a smaller analyser written in Lua takes over (Global shows which
+  one is active).
+- **Command execution and file access** use their own heuristics and are off by
+  default.
 
----
+Some numbers from testing. On libinjection's own test sets, about 100% of the
+SQLi and XSS samples were caught. I also ran 42k distinct parameter values from
+my server's access logs through it. The only values it flagged were scanner
+probes. The Lua fallback is weaker: it flagged 4.5% of libinjection's
+false-positive samples, which is why the C library is the default.
+
+Other bits that may be useful if you read the code:
+
+- Rule files are compiled by the panel into simple text and packed binary files
+  (sorted IP ranges, binary-searched by the engine). The engine polls a version
+  file and reloads them, so saving a setting doesn't need an nginx reload.
+- The access handler runs under `pcall`. If the engine errors, the request goes
+  through instead of failing.
+- The server's own addresses and LAN ranges are never blocked. Node/Nuxt SSR
+  apps call themselves a lot, and older versions of this plugin returned 503s
+  for that reason.
 
 ## Requirements
 
-- aaPanel with **nginx + `lua_nginx_module`** (LuaJIT).
-- aaPanel's GeoIP country database
-  (`/www/server/panel/data/firewall/GeoLite2-Country.json`) — normally already
-  present.
+- aaPanel with nginx built with `lua_nginx_module` (the default aaPanel nginx is).
+- gcc, to build libinjection. It's optional, but strongly recommended.
+- The panel's country database
+  (`/www/server/panel/data/firewall/GeoLite2-Country.json`). The installer
+  downloads it if it's missing.
 
-## Limitations — please read
+## Install
 
-- **One lua WAF per nginx.** WAF Pro refuses to wire itself in while aaPanel's
-  btwaf or free_waf is hooked into nginx (two `access_by_lua_file` in one
-  `http` block is a fatal config error).
-- **Reverse-proxied apps (Node.js, Nuxt, Next.js…).** Versions before 2.1
-  broke these with 503s. 2.1 removes the known causes (the server's own SSR
-  requests are never rate-limited or banned, WebSocket connections are kept out
-  of the rate counters, and Node project domains are now actually matched).
-  It has been tested on an isolated nginx with the same build, **not yet under
-  real production traffic** — enable it on a proxied site and watch it before
-  relying on it.
-- **PHP2Shell (CVE-2026-109618 / 109619).** The guard removes the known
-  triggers, but PHP's own advisory is clear that updating PHP (8.2.35, 8.3.36,
-  8.4.27, 8.5.12 or newer) is the only complete fix.
-- The country database is IPv4-only, so Region rules do not apply to IPv6
-  visitors (every other rule does).
+1. Download `wafpro-x.x.zip` from the
+   [releases page](https://github.com/ByEzel93/wafpro/releases). Use the zip
+   attached to the release, not GitHub's "Source code" zip. Only the attached
+   one unpacks into the `wafpro/` folder aaPanel expects.
+2. In aaPanel open App Store, upload it as a third-party plugin (or unzip it so
+   you end up with `/www/server/panel/plugin/wafpro/`).
+3. Open the plugin, go to Global and switch on the engine. It writes the nginx
+   include, runs `nginx -t`, and rolls back if the test fails.
+4. Turn protection on for your sites on the WebSite tab.
 
-If a site misbehaves after you enable the engine, disable it immediately:
+Updating works the same way: upload the new zip. The updater rebuilds the rule
+files and libinjection, and reloads nginx only if `nginx -t` passes.
+
+## Limitations
+
+- Only one Lua WAF can own the access phase. WAF Pro won't wire itself in while
+  btwaf or the free WAF is active.
+- The country database is IPv4 only, so region rules don't apply to IPv6
+  visitors. Everything else does.
+- PHP2Shell (CVE-2026-109618 / 109619): the guard blocks the known triggers, but
+  the real fix is updating PHP (8.2.35, 8.3.36, 8.4.27, 8.5.12 or newer).
+- Like any SQLi detector, libinjection has false positives on some quoted search
+  strings. If a search box on your site is affected, whitelist that URL or turn
+  SQL injection defense off for the site.
+
+To take the engine out of nginx by hand:
 
 ```bash
 rm -f /www/server/panel/vhost/nginx/wafpro.conf
 nginx -t && nginx -s reload
 ```
 
-That fully removes the engine from nginx; your sites keep running.
+Your sites keep running; only the WAF is removed.
 
-## Install
+## Changes in 2.2
 
-1. Download the latest **`wafpro-x.x.zip`** from the
-   [Releases page](https://github.com/ByEzel93/wafpro/releases).
-   > Use the `wafpro-x.x.zip` attached to the release, **not** GitHub's
-   > auto-generated "Source code" zip — only the attached one unpacks to the
-   > `wafpro/` folder aaPanel expects.
-2. In aaPanel, go to **App Store → find a plugin / third-party** and upload the
-   zip as a custom plugin. (Or unzip it straight into
-   `/www/server/panel/plugin/` so you get `/www/server/panel/plugin/wafpro/`.)
-3. Open the plugin and, on the **Global** tab, turn on **Engine wired into
-   nginx**. This installs the lua config into nginx after testing it with
-   `nginx -t` (it rolls back automatically if the test fails).
-4. Enable protection per site on the **Website** tab.
-
-The installer never edits a running nginx config without a successful `nginx -t`
-first, and backs up before changing anything.
-
-**Updating from 2.0:** upload the new zip the same way. The updater re-renders
-all rule files (2.1 uses a new site format) and, if the engine is wired, reloads
-nginx after a passing `nginx -t`. Global › Engine status shows when the workers
-run the latest settings.
-
----
+- Every tab rebuilt to match aaPanel 8's WAF; new Exclusive Rules tab.
+- libinjection for SQLi/XSS, on by default. Keyword rules match per parameter
+  and skip free-text fields.
+- Ban history, rule hit log, matched-rule details in Blockade.
+- Region: multiple sites per rule, custom response page.
+- Traffic Limit: whole-site and all-client limits, time windows, HTML/JSON
+  limit page.
+- Custom rules: OR groups, release and verification actions.
+- Overview: client, status code, referrer and per-IP/per-page traffic stats.
+- The plugin window opens at its final size instead of resizing several times.
 
 ## Disclaimer
 
-**Read this carefully.**
+I built this for my own servers and I'm sharing it as is. Features were tested
+while developing them, on an isolated nginx and against real logs, but it hasn't
+run in front of many sites for a long time. A WAF sits in the request path, so a
+bug can block real users. Try it on a staging box first, keep the recovery
+commands above handy, and don't put it in front of anything critical until
+you're comfortable with it.
 
-- This plugin was built quickly and **has not been through thorough,
-  long-running production testing.** Individual features were verified during
-  development, but there is no guarantee it behaves correctly under every
-  real-world traffic pattern, nginx build, or aaPanel version.
-- A WAF sits directly in your request path. A bug could, in the worst case,
-  **block legitimate traffic or affect site availability.** Test it on a
-  staging server before putting it in front of anything important.
-- It is provided **as-is, with no warranty of any kind.** You run it at your own
-  risk. The author is not responsible for downtime, blocked users, data loss, or
-  any other damage resulting from its use.
-- It is **not** an official aaPanel product and is not affiliated with or
-  endorsed by aaPanel.
+There is no warranty. This is not an official aaPanel plugin and isn't
+affiliated with aaPanel.
 
-If you are not comfortable reading the code and recovering nginx by hand if
-something goes wrong, please wait for a more mature release.
+## Issues and contributions
 
----
+Bugs and requests go to the
+[issue tracker](https://github.com/ByEzel93/wafpro/issues). It helps if you
+include:
 
-## Found a bug? Have a request?
+- aaPanel and nginx versions (`nginx -V`)
+- what you did, what you expected and what happened
+- related lines from `/www/wwwlogs/wafpro/` and `/www/wwwlogs/nginx_error.log`
+- whether the engine is wired in and whether `nginx -t` passes
 
-Please **open an issue on GitHub** rather than only reporting it on the forum —
-that way it's tracked and others can see it:
-
-**➡️ https://github.com/ByEzel93/wafpro/issues**
-
-When opening an issue, include:
-
-- aaPanel version and nginx version (`nginx -V`)
-- What you did and what you expected vs. what happened
-- Any relevant lines from the WAF log (`/www/wwwlogs/wafpro/`) and the nginx
-  error log (`/www/wwwlogs/nginx_error.log`)
-- Whether the engine is wired in (Global tab) and whether `nginx -t` passes
-
-Pull requests are welcome. If you improve a rule, fix a bug, or add a feature,
-please describe how you tested it.
-
----
-
-## Uninstall / recovery
-
-- The plugin's uninstaller removes the nginx wiring and the plugin files.
-- If nginx ever fails to start because of the WAF config, remove
-  `/www/server/panel/vhost/nginx/wafpro.conf` and reload nginx — that fully
-  disables the engine.
-
----
+Pull requests are welcome; please say how you tested the change.
 
 ## License
 
-Released as a free community plugin. Use, modify and share freely. No warranty.
-See the [Disclaimer](#disclaimer).
+Free to use, modify and share, with no warranty.
+
+`engine/libinjection/` is libinjection, copyright Nick Galbreath and the
+libinjection contributors, under the BSD 3-Clause license (see
+`engine/libinjection/COPYING`). It's included unmodified.
