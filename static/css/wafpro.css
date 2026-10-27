@@ -100,7 +100,6 @@
 #wafpro-app .wp-seg input.wp-date-proxy{display:block}
 /* laydate renders on <body>; keep it above the panel's dialog */
 .layui-laydate{z-index:99999999 !important}
-#wafpro-app .wp-tabs .wp-tab-act{margin-left:auto;padding:6px 14px;flex:none}
 #wafpro-app .wp-count{width:30px;height:30px;border-radius:50%;border:1px solid var(--wp-green);
   color:var(--wp-green);font-size:12px;font-weight:600;display:flex;align-items:center;justify-content:center;flex:none}
 #wafpro-app .wp-ref{margin-left:auto;padding:6px 12px}

@@ -103,8 +103,8 @@
   }
   function pollWebshell() {
     if (S.timer) clearInterval(S.timer);
-    S.timer = setInterval(function () {
-      if (S.tab !== 'webshell') { clearInterval(S.timer); S.timer = null; return; }
+    var me = S.timer = setInterval(function () {
+      if (W.S !== S || S.tab !== 'webshell') { clearInterval(me); if (S.timer === me) S.timer = null; return; }
       post('webshell_status', {}, function (r) {
         var sc = r.scan || {};
         $('#ws-state').html(wsState(sc));

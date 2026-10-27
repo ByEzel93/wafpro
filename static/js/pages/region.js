@@ -60,8 +60,15 @@
       h += '<div class="wp-note" style="margin-bottom:12px">' + icoWarn() +
         ' The WAF Pro engine is not wired into nginx yet, so these rules are stored but <b>not enforced</b>.</div>';
     }
+    var g = r.geo || {}, gm = g.meta || {};
+    var src = g.have
+      ? 'Country data: <a class="wp-lnk" href="https://db-ip.com" target="_blank" rel="noopener">IP Geolocation by DB-IP</a> (' +
+        esc(gm.edition || '') + ') <span class="wp-ops-sep">|</span><span class="wp-lnk" id="rg-geo">Update</span>'
+      : '<span style="color:var(--wp-orange,#f59e0b)">Using the panel\'s old IPv4-only country database; IPv6 visitors are not checked.</span> ' +
+        '<span class="wp-lnk" id="rg-geo">Download current country data</span>';
     h += '<div class="wp-card"><div class="wp-bl-bar" style="margin-bottom:14px">' +
-      '<span class="wp-btn primary" id="rg-add">Add Region Restriction</span></div>';
+      '<span class="wp-btn primary" id="rg-add">Add Region Restriction</span>' +
+      '<span style="margin-left:auto;font-size:12px;color:#94a3b8">' + src + '</span></div>';
     h += '<div class="wp-site-box"><table class="wp-site-tbl"><thead><tr>' +
       '<th style="min-width:300px">Area</th><th>Status</th><th>Status code</th><th style="min-width:200px">Website</th>' +
       '<th>Type</th><th class="r">Operate</th></tr></thead><tbody>';
@@ -82,6 +89,14 @@
     $('#wp-body').html(h);
 
     $('#rg-add').on('click', regAddDialog);
+    $('#rg-geo').on('click', function () {
+      var ld = layer.msg('Downloading the country list...', { icon: 16, time: 0, shade: 0.3 });
+      post('geo_update', {}, function (rr) {
+        layer.close(ld);
+        layer.msg(rr.msg, { icon: rr.status ? 1 : 2, time: 4000 });
+        if (rr.status) route();
+      });
+    });
     $('#wp-body').on('change', '.rg-on', function () {
       var id = $(this).closest('tr').data('id'), on = $(this).is(':checked');
       post('region_rule_toggle', { id: id, open: on ? 1 : 0 }, function (rr) {

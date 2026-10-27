@@ -15,7 +15,9 @@
   function selfTestDialog() { return W.selfTestDialog.apply(this, arguments); }
 
   var API = '/plugin?action=a&name=wafpro&s=';
-  var S = { tab: 'overview', charts: {}, timer: null, range: 'today' };
+  // gen counts page renders: a reply that arrives after the user moved on
+  // (or after the plugin was closed and reopened) must not draw anything
+  var S = { tab: 'overview', charts: {}, timer: null, range: 'today', gen: 0 };
 
   // The panel merges form fields over the query string, so a payload key
   // named action/name/s would replace the route itself (issue #1).
@@ -26,7 +28,11 @@
         console.error('[WAF Pro] payload key "' + k + '" is reserved by the panel router (' + m + ')');
       }
     });
-    $.post(API + m, d || {}, function (r) { cb(r); }, 'json')
+    var gen = S.gen;
+    $.post(API + m, d || {}, function (r) {
+      if (W.S !== S || S.gen !== gen) return;
+      cb(r);
+    }, 'json')
       .fail(function (x) { layer.msg('Request failed: ' + x.status, { icon: 2 }); });
   }
   function esc(s) {
@@ -93,10 +99,8 @@
   function renderTabs() {
     $('#wp-tabs').html(TABS.map(function (x) {
       return '<div class="wp-tab' + (x.id === S.tab ? ' on' : '') + '" data-t="' + x.id + '">' + x.t + '</div>';
-    }).join('') +
-      '<span class="wp-btn primary wp-tab-act" id="wp-simulate" title="Send attack-shaped test requests to your sites">Simulated attack</span>');
+    }).join(''));
   }
-  $('#wp-tabs').on('click', '#wp-simulate', function () { selfTestDialog(''); });
   $('#wp-tabs').on('click', '.wp-tab', function () {
     var t = $(this).data('t');
     if (t === S.tab) return;
@@ -105,6 +109,7 @@
 
   function route() {
     if (S.timer) { clearInterval(S.timer); S.timer = null; }
+    S.gen++;
     // Pages bind delegated handlers on #wp-body; without this every visit
     // stacked another copy, so one click on Delete fired N confirms/requests.
     $('#wp-body').off();

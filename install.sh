@@ -23,6 +23,25 @@ wafpro_main.wafpro_main()._compile()
 " 2>&1 | tail -3
 }
 
+# Downloaded lists the engine depends on, fetched once when missing:
+#   - verified crawler IPs (Fake spider has nothing to check against without)
+#   - country ranges, IPv4 + IPv6 (the panel's GeoLite2 copy is IPv4 only
+#     and no longer refreshed)
+# Both refresh later from the panel; a failure here only leaves a warning.
+Fetch_lists()
+{
+	cd /www/server/panel && python3 -c "
+import sys, os
+sys.path.insert(0, 'class'); sys.path.insert(0, '$pluginPath')
+import wafpro_main
+m = wafpro_main.wafpro_main()
+if not os.path.exists(m.SPIDER_FILE):
+    print('crawler IPs: ' + m.spider_update(None)['msg'])
+if not os.path.exists(m.GEO_META):
+    print('countries: ' + m.geo_update(None)['msg'])
+" 2>&1 | tail -3
+}
+
 # libinjection (engine/libinjection, BSD-3) decides SQLi/XSS for the engine
 # through LuaJIT's FFI. Without a compiler the engine falls back to its own
 # Lua analysers, so a failed build is a warning, not an error.
@@ -80,6 +99,7 @@ Install_wafpro()
 	fi
 
 	Compile_rules
+	Fetch_lists
 
 	# Already wired (an update): the engine is cached at nginx start, so the
 	# new lua only runs after a reload — and only reload on a passing test.

@@ -15,7 +15,7 @@
 -- |   rule/*.bin6       packed sorted IPv6 ranges (32B/range), same idea
 -- |   rule/version      bumped on every change -> workers resync, no reload
 -- +-------------------------------------------------------------------
-local _M = { _VERSION = '2.1' }
+local _M = { _VERSION = '2.2.1' }
 
 local RULE_DIR = '/www/server/wafpro/rule/'
 local LOG_DIR = '/www/wwwlogs/wafpro/'
@@ -409,19 +409,24 @@ end
 -- id|site|type|status|open
 -- A rule covering several sites has one line per site; they share the
 -- ranges and the optional response page (<id>.html), read once.
+-- <id>.bin6 holds the rule's IPv6 ranges; it is missing when the panel has
+-- no IPv6 country data yet, and then IPv6 visitors are left alone by it.
 local function parse_region(path)
-    local rules, by_site, bins, pages = {}, {}, {}, {}
+    local rules, by_site, bins, bins6, pages = {}, {}, {}, {}, {}
     for _, line in ipairs(read_lines(path)) do
         local id, site, typ, status, open = line:match('^([^|]*)|([^|]*)|([^|]*)|([^|]*)|([^|]*)$')
         if id and open == '1' then
             if bins[id] == nil then
                 bins[id] = read_all(RULE_DIR .. id .. '.bin') or false
+                local b6 = read_all(RULE_DIR .. id .. '.bin6')
+                bins6[id] = (b6 and #b6 >= 32) and b6 or false
                 pages[id] = read_all(RULE_DIR .. id .. '.html') or false
             end
             local buf = bins[id]
             if buf then
                 local r = { id = id, site = site, typ = typ, page = pages[id] or nil,
-                            status = tonumber(status) or 444, ranges = buf }
+                            status = tonumber(status) or 444, ranges = buf,
+                            ranges6 = bins6[id] or nil }
                 rules[#rules + 1] = r
                 local b = by_site[site]
                 if not b then b = {}; by_site[site] = b end
@@ -611,6 +616,7 @@ function _M.load()
         spider_ua = (read_lines(RULE_DIR .. 'spider_ua.txt'))[1],
         mal = ipset('malicious'),
         idc = ipset('idc'),
+        cf = ipset('cloudflare'),
         crawl_ua = (read_lines(RULE_DIR .. 'crawl_ua.txt'))[1],
         wait_html = read_all(RULE_DIR .. 'waiting.html'),
         unban = parse_unban(RULE_DIR .. 'unban.txt'),
@@ -871,8 +877,19 @@ end
 -- the right-most address that is not private/our own. The left-most one is
 -- whatever the client chose to send.
 local function client_addr(sc)
+    -- A connection from Cloudflare's own network can only be Cloudflare, so
+    -- its CF-Connecting-IP is trusted even with the CDN switch off. Without
+    -- this a proxied site saw a handful of Cloudflare addresses as "the
+    -- visitors": crawlers became fake spiders, CC bans hit everyone behind
+    -- the same edge, and region rules looked at Cloudflare's location.
+    local cf = ngx.var.http_cf_connecting_ip
+    if cf and state.cf then
+        local k, kk = parse_ip(ngx.var.remote_addr)
+        if k and in_set(state.cf, { kind = k, key = kk }) and parse_ip(cf) then
+            return cf
+        end
+    end
     if (sc and sc.cdn) or (state.cfg or {}).cdn then
-        local cf = ngx.var.http_cf_connecting_ip
         if cf and parse_ip(cf) then return cf end
         local xff = ngx.var.http_x_forwarded_for
         if xff then
@@ -1023,6 +1040,9 @@ end
 local function cust_cond(c, ctx)
     -- ip / country match against a compiled bin of ranges
     if c.field == 'ip' or c.field == 'country' then
+        if c.field == 'country' and ctx.client.kind == 6 and #(c.set.v6 or '') < 32 then
+            return false
+        end
         local hit = in_set(c.set, ctx.client)
         if c.op == 'notmatch' then return not hit end
         return hit
@@ -1792,15 +1812,22 @@ function _M.access()
         end
     end
 
-    -- region (the country database is IPv4 only)
-    if kind == 4 then
+    -- region. IPv4 comes from the panel's GeoLite2 database, IPv6 from
+    -- DB-IP's country list; a rule without IPv6 data skips IPv6 visitors
+    -- rather than guessing (a "pass" rule would otherwise shut them all out).
+    do
         local function region_apply(rs)
             if not rs then return end
             for i = 1, #rs do
                 local r = rs[i]
-                local hit = in_ranges(r.ranges, key)
+                local hit
+                if kind == 4 then
+                    hit = in_ranges(r.ranges, key)
+                elseif r.ranges6 then
+                    hit = in_ranges6(r.ranges6, key)
+                end
                 -- intercept: listed areas blocked. pass: only listed get through.
-                if (r.typ == 'intercept' and hit) or (r.typ == 'pass' and not hit) then
+                if hit ~= nil and ((r.typ == 'intercept' and hit) or (r.typ == 'pass' and not hit)) then
                     ngx.ctx.wafpro_page = r.page
                     return deny(ips, site, 'region:' .. r.typ, ips, r.status)
                 end
@@ -1812,7 +1839,10 @@ function _M.access()
 
     -- fake spider: claims to be a search engine but is not crawling from the
     -- IPs that engine publishes. Real crawlers are let through untouched.
-    if sc.fake_spider and state.spider_ua and (state.spider.v4 or state.spider.v6) then
+    -- needs the verified list: read_all gives '' for an empty file, which is
+    -- truthy, and then every real Googlebot was "fake"
+    if sc.fake_spider and state.spider_ua and
+       (#(state.spider.v4 or '') >= 8 or #(state.spider.v6 or '') >= 32) then
         if ua and match_any({ state.spider_ua }, ua) then
             if in_set(state.spider, client) then
                 return                       -- verified crawler: skip the rest

@@ -40,6 +40,9 @@
   }
 
   function pageOverview() {
+    // also called by the refresh countdown itself, not only through route()
+    if (S.timer) { clearInterval(S.timer); S.timer = null; }
+    S.gen++;
     $('#wp-body').html('<div class="wp-loading">Loading dashboard...</div>');
     post('overview', { date: S.ovDate || '' }, function (d) {
       if (!d.status) { $('#wp-body').html('<div class="wp-note">' + esc(d.msg || 'Failed to load') + '</div>'); return; }
@@ -400,7 +403,14 @@
     }
     tick();
     var n = 0;
-    S.timer = setInterval(function () {
+    var me = S.timer = setInterval(function () {
+      // stop once this page is gone: another tab, or the plugin was closed
+      // or reopened (a reopen loads a fresh copy of every module)
+      if (W.S !== S || S.tab !== 'overview' || !document.getElementById('ov-ring-p')) {
+        clearInterval(me);
+        if (S.timer === me) S.timer = null;
+        return;
+      }
       n++; left--;
       $('#ov-ring-p').css('stroke-dashoffset', (94.25 * (1 - left / REFRESH)).toFixed(2));
       if (n % 10 === 0) tick();

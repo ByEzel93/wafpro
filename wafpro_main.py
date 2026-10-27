@@ -1051,7 +1051,17 @@ p{margin:0;color:#606266}
 
     # .bin/.bin6 sets _compile() writes itself; any other packed file is a
     # stale region/custom rule and gets cleaned up.
-    FIXED_SETS = ('lan', 'self', 'ip_white', 'ip_black', 'spider', 'malicious', 'idc')
+    FIXED_SETS = ('lan', 'self', 'ip_white', 'ip_black', 'spider', 'malicious', 'idc', 'cloudflare')
+
+    # Cloudflare's edge (cloudflare.com/ips-v4, /ips-v6). The engine trusts
+    # CF-Connecting-IP on connections from these, whatever the CDN switch
+    # says: nobody else can connect from Cloudflare's addresses.
+    CLOUDFLARE_V4 = ('173.245.48.0/20', '103.21.244.0/22', '103.22.200.0/22', '103.31.4.0/22',
+                     '141.101.64.0/18', '108.162.192.0/18', '190.93.240.0/20', '188.114.96.0/20',
+                     '197.234.240.0/22', '198.41.128.0/17', '162.158.0.0/15', '104.16.0.0/13',
+                     '104.24.0.0/14', '172.64.0.0/13', '131.0.72.0/22')
+    CLOUDFLARE_V6 = ('2400:cb00::/32', '2606:4700::/32', '2803:f800::/32', '2405:b500::/32',
+                     '2405:8100::/32', '2a06:98c0::/29', '2c0f:f248::/32')
 
     def _w(self, name, body):
         '''Write one engine file, readable by the nginx workers (www).'''
@@ -1129,6 +1139,11 @@ p{margin:0;color:#606266}
         self._pack_set('lan', self._merge([[self._ip2int(a), self._ip2int(b)]
                                            for a, b in self.PRIVATE_RANGES]), self._merge(lan6))
         self._pack_set('self', *self._self_ips())
+        cf4, cf6 = [], []
+        for c in self.CLOUDFLARE_V4 + self.CLOUDFLARE_V6:
+            fam, a, b = self._any_range(c)
+            (cf4 if fam == 4 else cf6).append([a, b])
+        self._pack_set('cloudflare', self._merge(cf4), self._merge(cf6))
         for name in ('ip_white', 'ip_black'):
             self._pack_set(name, *self._ip_ranges(name))
         for name in self.RULE_NAMES:
@@ -1163,6 +1178,21 @@ p{margin:0;color:#606266}
         keep = set()
         for r in region:
             keep.add(r['id'] + '.bin')
+            # packed ranges are (re)built here when missing: geo_update
+            # deletes them so rules pick up new country data, and rules made
+            # before there was IPv6 data get their .bin6 once it arrives
+            b4 = RULE_DIR + r['id'] + '.bin'
+            if not os.path.exists(b4):
+                v4 = self._ranges_for(r.get('areas') or [])
+                if v4:
+                    r['ranges'] = self._pack(v4, b4)
+            b6 = RULE_DIR + r['id'] + '.bin6'
+            if not os.path.exists(b6):
+                v6 = self._ranges6_for(r.get('areas') or [])
+                if v6 is not None:
+                    self._pack6(v6, b6)
+            if os.path.exists(b6):
+                keep.add(r['id'] + '.bin6')
             # a rule may cover several sites (or '*' = all): one line each,
             # all pointing at the same packed ranges
             for site in self._region_sites(r):
@@ -1202,7 +1232,8 @@ p{margin:0;color:#606266}
                 extra, value = c.get('extra', ''), c.get('value', '')
                 if field in ('ip', 'country'):
                     if field == 'country':
-                        v4, v6 = self._ranges_for(self._split_csv(value)) or [], []
+                        codes = self._split_csv(value)
+                        v4, v6 = self._ranges_for(codes) or [], self._ranges6_for(codes) or []
                     else:
                         v4, v6 = self._ip_value_ranges(value)
                     binname = '{}_{}.bin'.format(r['id'], ci)
@@ -2667,7 +2698,38 @@ p{margin:0;color:#606266}
                 out.append([s, e])
         return out
 
+    # Country ranges come from DB-IP's free country list (CC BY 4.0, monthly),
+    # IPv4 and IPv6, one packed file per country and family. The panel's own
+    # GeoLite2-Country.json is the IPv4 fallback until that list is
+    # downloaded; it is IPv4 only and the panel stopped refreshing it, so
+    # reassigned blocks keep their old country (131.222.0.0/15 was still
+    # "US" in it after part of it moved to a Turkish ISP). RIR delegation
+    # files were considered too, but they hold the registrant's country:
+    # Hetzner's Finnish IPv6 shows up there as Germany.
+    GEO_DIR = PLUGIN_PATH + 'geo/'
+    GEO_META = PLUGIN_PATH + 'geo.json'
+    GEO_URL = 'https://download.db-ip.com/free/dbip-country-lite-{}.csv.gz'
+
+    def _geo_read(self, codes, ext, size):
+        out = []
+        for cc in codes:
+            if not re.match(r'^[A-Z]{2}$', cc or ''):
+                continue
+            try:
+                with open(self.GEO_DIR + cc + ext, 'rb') as f:
+                    buf = f.read()
+            except (IOError, OSError):
+                continue
+            half = size // 2
+            for i in range(0, len(buf) - size + 1, size):
+                out.append([int.from_bytes(buf[i:i + half], 'big'),
+                            int.from_bytes(buf[i + half:i + size], 'big')])
+        return self._merge(out)
+
     def _ranges_for(self, codes):
+        '''Merged IPv4 ranges of the given countries, or None without data.'''
+        if os.path.isdir(self.GEO_DIR):
+            return self._geo_read(codes, '.bin', 8)
         db = self._read_json(self.COUNTRY_DB, [])
         if not isinstance(db, list) or not db:
             return None
@@ -2682,6 +2744,77 @@ p{margin:0;color:#606266}
                 except Exception:
                     continue
         return self._merge(out)
+
+    def _ranges6_for(self, codes):
+        '''Merged IPv6 ranges of the given countries, or None without data.'''
+        if not os.path.isdir(self.GEO_DIR):
+            return None
+        return self._geo_read(codes, '.bin6', 32)
+
+    def geo_status(self, get=None):
+        m = self._read_json(self.GEO_META, None)
+        return {'status': True, 'have': isinstance(m, dict) and os.path.isdir(self.GEO_DIR),
+                'meta': m or {}}
+
+    def geo_update(self, get=None):
+        '''Download DB-IP's country list and rebuild the per-country files.'''
+        import gzip
+        import io
+        import shutil
+        import ipaddress
+        import urllib.request
+        t = time.localtime()
+        prev = (t.tm_year, t.tm_mon - 1) if t.tm_mon > 1 else (t.tm_year - 1, 12)
+        body, month = None, ''
+        # the new month's file appears a day or two late
+        for month in (time.strftime('%Y-%m', t), '%04d-%02d' % prev):
+            try:
+                req = urllib.request.Request(self.GEO_URL.format(month), headers={'User-Agent': 'wafpro'})
+                body = urllib.request.urlopen(req, timeout=60).read()
+                break
+            except Exception:
+                body = None
+        if not body:
+            return public.returnMsg(False, 'Could not download the country list from db-ip.com. '
+                                           'Check the server\'s outbound access.')
+        v4, v6 = {}, {}
+        try:
+            with gzip.GzipFile(fileobj=io.BytesIO(body)) as f:
+                for raw in f:
+                    parts = raw.decode('ascii', 'ignore').strip().split(',')
+                    if len(parts) != 3 or not re.match(r'^[A-Z]{2}$', parts[2]):
+                        continue
+                    try:
+                        a = int(ipaddress.ip_address(parts[0]))
+                        b = int(ipaddress.ip_address(parts[1]))
+                    except ValueError:
+                        continue
+                    (v6 if ':' in parts[0] else v4).setdefault(parts[2], []).append([a, b])
+        except Exception as e:
+            return public.returnMsg(False, 'Country list is damaged: {}'.format(e))
+        if len(v4) < 200 or len(v6) < 100:
+            return public.returnMsg(False, 'Country list looks incomplete, kept the old one')
+
+        tmp = self.GEO_DIR.rstrip('/') + '.new/'
+        shutil.rmtree(tmp, ignore_errors=True)
+        os.makedirs(tmp)
+        n4 = n6 = 0
+        for cc, ranges in v4.items():
+            n4 += self._pack(self._merge(ranges), tmp + cc + '.bin')
+        for cc, ranges in v6.items():
+            n6 += self._pack6(self._merge(ranges), tmp + cc + '.bin6')
+        shutil.rmtree(self.GEO_DIR, ignore_errors=True)
+        os.rename(tmp, self.GEO_DIR)
+        self._write_json(self.GEO_META, {'updated': time.strftime('%Y-%m-%d %H:%M:%S'),
+                                         'edition': month, 'ranges': n4, 'ranges6': n6})
+        # region rules rebuild their packed ranges from the new data
+        for fn in os.listdir(RULE_DIR) if os.path.isdir(RULE_DIR) else []:
+            if re.match(r'^r\d+\.bin6?$', fn):
+                os.remove(RULE_DIR + fn)
+        self._compile()
+        msg = 'Country data updated: {} IPv4 + {} IPv6 ranges ({})'.format(n4, n6, month)
+        public.WriteLog('WAF Pro', msg)
+        return public.returnMsg(True, msg)
 
     def _pack(self, ranges, path):
         buf = b''.join(struct.pack('>II', s, e) for s, e in ranges)
@@ -2725,6 +2858,7 @@ p{margin:0;color:#606266}
             'sites': self._panel_sites(),
             'status_codes': self.STATUS_CODES,
             'engine': self.region_engine_state(),
+            'geo': self.geo_status(),
         }
 
     def region_engine_state(self):

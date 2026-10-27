@@ -17,6 +17,9 @@ map_location.json
 remarks.json
 spiders.json
 malicious.json
+geo.json
+geo/
+geo.new/
 *.json.bak
 
 # macOS
