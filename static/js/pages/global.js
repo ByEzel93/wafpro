@@ -37,7 +37,7 @@
      defense, Sensitive words) jump to their section and follow the scroll.
      Each card: title + switch on top, description + "Status [code]" picker
      and buttons below. A protection runs only when its card is on here AND
-     the website has it on (WebSite > Modify). */
+     the website has it on (WebSite > Set). */
   var RESP_CODES = [[200, '200 Normal access'], [404, '404 File not exist'], [403, '403 Access denied'],
                     [444, '444 Close connection'], [500, '500 Application error'],
                     [502, '502 Connection timed out'], [503, '503 Server is unavailable']];
@@ -123,7 +123,7 @@
         { t: 'From-data protocol', d: 'From-data is the default format for file uploads, and the firewall only trusts the default ' +
           'format. Turning this on rejects malformed upload bodies on every website.', sw: 'form_all' },
         { t: 'Malicious Download Defense', d: 'Detect malicious downloads and prevent backup files, source code, and other critical data from being downloaded',
-          n: 'Uses each website\'s forbidden extensions (WebSite › Modify).', sw: 'm_download', st: 'black_status', btns: [resp] },
+          n: 'Uses each website\'s forbidden extensions (WebSite › Set).', sw: 'm_download', st: 'black_status', btns: [resp] },
         { t: 'Custom rule interception', d: 'Detect known exploits (PHP code execution, framework RCE, SSRF probes) with editable rules',
           sw: 'm_nday', st: 'get_status', btns: [['Rule', rules('nday')], resp] },
         { t: 'Malicious crawler defense', d: 'Detect malicious crawlers and prevent malicious crawlers from accessing the website',
@@ -455,7 +455,7 @@
   function httpPackageDialog(c) {
     gDialog('HTTP package', 480,
       fRow('Max body', nIn('hp-kb', c.body_max_all) + ' <span class="wp-unit">KB</span>',
-        'Applies to every website without its own limit (WebSite › Modify). Uploads are excluded.'),
+        'Applies to every website without its own limit (WebSite › Set). Uploads are excluded.'),
       function (close) { saveCfg({ body_max_all: +$('#hp-kb').val() }, function () { close(); route(); }); });
   }
 

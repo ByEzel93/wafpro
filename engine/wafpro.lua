@@ -537,9 +537,9 @@ local function apply_globals(sites, cfg)
         end
         if cfg.browser_all == true then sc.browser = true end
         if cfg.form_all == true then sc.form_strict = true end
-        -- malicious upload / download defense switches
-        if cfg.m_upload == false then sc.upload_ext = {} end
-        if cfg.m_download == false then sc.deny_ext = {} end
+        -- malicious upload / download defense switches (global, then the site's)
+        if cfg.m_upload == false or sc.upload == false then sc.upload_ext = {} end
+        if cfg.m_download == false or sc.download == false then sc.deny_ext = {} end
         if sc.body_max <= 0 and cfg.http_all == true then sc.body_max = tonumber(cfg.body_max_all) or 0 end
     end
 end
@@ -1878,9 +1878,12 @@ function _M.access()
     end
 
     -- semantic analysis (SQL / XSS / command / file paths), per parameter
-    if detect and (cfg.m_sqli == true or cfg.m_xss == true or cfg.m_rce == true) then
-        local kinds = { sqli = cfg.m_sqli == true, xss = cfg.m_xss == true,
-                        cmdi = cfg.m_rce == true, lfi = cfg.m_rce == true }
+    -- (global switch AND the site's; a sites.txt from before 2.2.3 has no
+    -- per-site field, which counts as on)
+    local rce = cfg.m_rce == true and sc.rce ~= false
+    local kinds = { sqli = cfg.m_sqli == true and sc.sqli ~= false,
+                    xss = cfg.m_xss == true and sc.xss ~= false, cmdi = rce, lfi = rce }
+    if detect and (kinds.sqli or kinds.xss or rce) then
         local kind, why = semantic_check(ctx, kinds)
         if kind then
             local st = { sqli = cfg.sqli_status, xss = cfg.xss_status, cmdi = cfg.rce_status, lfi = cfg.rce_status }

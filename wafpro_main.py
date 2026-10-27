@@ -294,10 +294,14 @@ class wafpro_main:
         'nday': True,
         # refuse visitors from cloud/datacenter address space
         'idc': False,
+        # per-site halves of the global SQL injection / XSS / command
+        # execution / malicious upload / malicious download switches
+        'sqli': True, 'xss': True, 'rce': True, 'upload': True, 'download': True,
     }
     SITE_BOOL_FIELDS = ('open', 'get', 'post', 'cookie', 'ua', 'scan', 'cc_open',
                         'cdn', 'fake_spider', 'smart_cc', 'crawl', 'wait',
-                        'php_guard', 'form_strict', 'browser', 'nday', 'idc')
+                        'php_guard', 'form_strict', 'browser', 'nday', 'idc',
+                        'sqli', 'xss', 'rce', 'upload', 'download')
     SITE_INT_FIELDS = ('cc_limit', 'cc_cycle', 'cc_block', 'crawl_limit', 'wait_limit',
                        'body_max')
     SITE_TEXT_FIELDS = ('deny_ext', 'upload_ext', 'php_path')
@@ -3544,6 +3548,7 @@ p{margin:0;color:#606266}
             hit = hits.get(name, {})
             row = {'name': name, 'intercepts': hit.get('total', 0),
                    'cc_hits': hit.get('cc', 0), 'smart_hits': hit.get('smart', 0),
+                   'hits_by': sorted(hit.get('by', {}).items(), key=lambda x: -x[1]),
                    'project_type': types.get(name, ''),
                    'in_panel': name in types,
                    'domains': sorted(domains.get(name, [])),
@@ -3565,8 +3570,9 @@ p{margin:0;color:#606266}
 
     def _site_hits(self):
         '''Blocks per site for today, straight from our own log:
-        {site: {'total': n, 'cc': n, 'smart': n}} — the WebSite table shows
-        the total plus the CC / Smart CC counts next to those switches.'''
+        {site: {'total': n, 'cc': n, 'smart': n, 'by': {rule: n}}} — the
+        WebSite table shows the total (broken down by rule on hover) plus the
+        CC / Smart CC counts next to those switches.'''
         out = {}
         path = WAF_LOG_DIR + time.strftime('%Y-%m-%d') + '.log'
         if not os.path.exists(path):
@@ -3581,9 +3587,10 @@ p{margin:0;color:#606266}
                     n = s.get('site')
                     if not n:
                         continue
-                    c = out.setdefault(n, {'total': 0, 'cc': 0, 'smart': 0})
+                    c = out.setdefault(n, {'total': 0, 'cc': 0, 'smart': 0, 'by': {}})
                     c['total'] += 1
                     rule = s.get('rule', '')
+                    c['by'][rule] = c['by'].get(rule, 0) + 1
                     if rule in ('cc', 'cc-blocked'):
                         c['cc'] += 1
                     elif rule == 'smart-cc':
@@ -3629,7 +3636,9 @@ p{margin:0;color:#606266}
         data = self._sites()
         if name not in data:
             return {'status': False, 'msg': 'Site not found'}
-        c = dict(data[name])
+        # fields added in later versions read as their default
+        c = dict(self.DEFAULT_SITE)
+        c.update(data[name])
         c['status'] = True
         c['name'] = name
         return c
