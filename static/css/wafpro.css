@@ -523,23 +523,39 @@ select.wp-in{height:32px}
 .wp-html-ed{flex:1;width:100%;min-height:380px;font:12px/1.6 ui-monospace,Menlo,Consolas,monospace;resize:none;box-sizing:border-box}
 .wp-g-dlg .wp-in{box-sizing:border-box}
 
-/* ================= dialogs: aaPanel 8 (naive-ui) modal look =================
-   Only layers opened through W.open/W.confirm carry .wp-layer. */
-.layui-layer.wp-layer{border-radius:6px;overflow:hidden;box-shadow:0 6px 16px -9px rgba(0,0,0,.08),
-  0 9px 28px 0 rgba(0,0,0,.05),0 12px 48px 16px rgba(0,0,0,.03);border:none}
-.layui-layer.wp-layer .layui-layer-title{height:54px;line-height:54px;padding:0 50px 0 24px;background:#fff;
-  border-bottom:1px solid #efeff5;font-size:16px;font-weight:500;color:#1f2225;border-radius:6px 6px 0 0}
-.layui-layer.wp-layer .layui-layer-setwin{top:19px;right:20px}
-.layui-layer.wp-layer .layui-layer-content{color:#333639;font-size:13px}
-.layui-layer.wp-layer .layui-layer-btn{display:flex;flex-direction:row-reverse;justify-content:flex-start;gap:10px;
-  padding:12px 24px;border-top:1px solid #efeff5;background:#fff;text-align:right}
-.layui-layer.wp-layer .layui-layer-btn a{margin:0;height:32px;line-height:30px;padding:0 16px;border-radius:4px;
-  font-size:13px;font-weight:400;border:1px solid #e0e0e6;background:#fff;color:#333639;transition:all .2s}
-.layui-layer.wp-layer .layui-layer-btn a:hover{border-color:#20a53a;color:#20a53a;opacity:1}
-.layui-layer.wp-layer .layui-layer-btn .layui-layer-btn0{background:#20a53a;border-color:#20a53a;color:#fff}
-.layui-layer.wp-layer .layui-layer-btn .layui-layer-btn0:hover{background:#3fb75a;border-color:#3fb75a;color:#fff}
-.wp-confirm{padding:22px 24px !important;line-height:1.7;color:#333639}
-.wp-g-dlg{padding:20px 24px}
+/* ================= dialogs: aaPanel 8 BtModal, "modern" component UI =================
+   Only layers opened through W.open/W.confirm carry .wp-layer. Measures from
+   the panel's BtModal / BtModalHeader / BtModalAction and its naive-ui theme:
+   10px corners, 53px header with a 14px title over a #eee rule, a 24px
+   rounded close button, transparent footer with medium (32px) buttons. */
+.layui-layer.wp-layer{border-radius:10px;overflow:hidden;border:none;background:#fff;
+  box-shadow:0 6px 16px -9px rgba(0,0,0,.08),0 9px 28px 0 rgba(0,0,0,.05),0 12px 48px 16px rgba(0,0,0,.03)}
+.layui-layer.wp-layer .layui-layer-title{height:53px;line-height:53px;padding:0 60px 0 20px;background:transparent;
+  border-bottom:1px solid #eee;font-size:14px;font-weight:500;color:#25282c;border-radius:10px 10px 0 0}
+.layui-layer.wp-layer .layui-layer-setwin{top:14.5px;right:20px;width:24px;height:24px}
+.layui-layer.wp-layer .layui-layer-setwin a{display:none}
+.layui-layer.wp-layer .layui-layer-setwin .layui-layer-close1, .layui-layer.wp-layer .layui-layer-setwin .layui-layer-close2{
+  display:block;position:static;width:24px;height:24px;margin:0;border-radius:6px;background:transparent;opacity:1;
+  transition:background-color .2s ease}
+.layui-layer.wp-layer .layui-layer-setwin .layui-layer-close1::before, .layui-layer.wp-layer .layui-layer-setwin .layui-layer-close2::before{
+  content:'';position:absolute;inset:0;margin:auto;width:20px;height:20px;background:#3a424d;
+  -webkit-mask:url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24'%3E%3Cpath d='M12 13.4l-4.9 4.9q-.275.275-.7.275t-.7-.275t-.275-.7t.275-.7l4.9-4.9l-4.9-4.9q-.275-.275-.275-.7t.275-.7t.7-.275t.7.275l4.9 4.9l4.9-4.9q.275-.275.7-.275t.7.275t.275.7t-.275.7L13.4 12l4.9 4.9q.275.275.275.7t-.275.7t-.7.275t-.7-.275z'/%3E%3C/svg%3E") center/20px no-repeat;
+  mask:url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24'%3E%3Cpath d='M12 13.4l-4.9 4.9q-.275.275-.7.275t-.7-.275t-.275-.7t.275-.7l4.9-4.9l-4.9-4.9q-.275-.275-.275-.7t.275-.7t.7-.275t.7.275l4.9 4.9l4.9-4.9q.275-.275.7-.275t.7.275t.275.7t-.275.7L13.4 12l4.9 4.9q.275.275.275.7t-.275.7t-.7.275t-.7-.275z'/%3E%3C/svg%3E") center/20px no-repeat}
+.layui-layer.wp-layer .layui-layer-setwin .layui-layer-close1:hover, .layui-layer.wp-layer .layui-layer-setwin .layui-layer-close2:hover{background:#f2f5f9}
+.layui-layer.wp-layer .layui-layer-setwin .layui-layer-close1:hover::before, .layui-layer.wp-layer .layui-layer-setwin .layui-layer-close2:hover::before{background:#131313}
+.layui-layer.wp-layer .layui-layer-setwin{position:absolute}
+.layui-layer.wp-layer .layui-layer-setwin .layui-layer-close1, .layui-layer.wp-layer .layui-layer-setwin .layui-layer-close2{position:relative}
+.layui-layer.wp-layer .layui-layer-content{color:#3a424d;font-size:12px}
+.layui-layer.wp-layer .layui-layer-btn{display:flex;justify-content:flex-end;gap:10px;padding:10px 18px;
+  border-top:1px solid #edf1f2;background:transparent;text-align:right;border-radius:0 0 4px 4px}
+.layui-layer.wp-layer .layui-layer-btn a{order:2;margin:0;height:32px;line-height:30px;padding:0 12px;border-radius:6px;
+  font-size:12px;font-weight:400;border:1px solid #dcdfe6;background:#fff;color:#3a424d;transition:all .2s}
+.layui-layer.wp-layer .layui-layer-btn a:hover{border-color:#bce4c4;background:#f4fbf5;color:#20a53a;opacity:1}
+/* naive order: Cancel, then the primary button */
+.layui-layer.wp-layer .layui-layer-btn .layui-layer-btn0{order:3;background:#20a53a;border-color:#20a53a;color:#fff}
+.layui-layer.wp-layer .layui-layer-btn .layui-layer-btn0:hover{background:#1d9534;border-color:#1d9534;color:#fff}
+.wp-confirm{padding:20px !important;line-height:20px;color:#3a424d;font-size:12px}
+.wp-g-dlg{padding:20px}
 
 /* Region add dialog = stock area picker */
 .wp-ra{padding:24px 32px !important}
@@ -829,3 +845,115 @@ select.wp-in{height:32px}
 .wp-csv-add{display:flex;gap:8px;margin-bottom:12px}
 .wp-csv-add .wp-in{flex:1}
 .wp-csv-box{max-height:300px;overflow-y:auto}
+
+/* ---------- naive-ui data table (aaPanel theme): 12px, #f6f6f6 header 34px,
+   36px rows, 8px / 6px 8px padding, #dcdfe6 rules, 10px outer corners ---------- */
+#wafpro-app .wp-site-box, .wp-modal .wp-site-box{border:1px solid #dcdfe6;border-radius:10px;overflow:hidden}
+#wafpro-app .wp-site-tbl, .wp-modal .wp-site-tbl{font-family:PingFang SC,Microsoft YaHei,Segoe UI,sans-serif;font-size:12px;
+  border-collapse:separate;border-spacing:0}
+.wp-modal .wp-site-tbl{border:1px solid #dcdfe6;border-radius:10px;overflow:hidden}
+.wp-modal .wp-site-box .wp-site-tbl, .wp-modal .wp-wc-box .wp-site-tbl, .wp-modal .wp-slog-box .wp-site-tbl,
+.wp-modal .wp-csv-box .wp-site-tbl{border:none;border-radius:0}
+#wafpro-app .wp-site-tbl th, .wp-modal .wp-site-tbl th{height:34px;padding:8px;background:#f6f6f6;color:#131313;font-weight:500;
+  border-bottom:1px solid #dcdfe6;text-align:left;white-space:nowrap}
+#wafpro-app .wp-site-tbl td, .wp-modal .wp-site-tbl td{height:36px;padding:6px 8px;color:#3a424d;border-bottom:1px solid #dcdfe6;
+  background:#fff;box-sizing:border-box}
+#wafpro-app .wp-site-tbl tr:last-child td, .wp-modal .wp-site-tbl tr:last-child td{border-bottom:none}
+#wafpro-app .wp-site-tbl tbody tr:hover td{background:#fafafc}
+.wp-modal .wp-site-tbl tbody tr:hover td{background:#f6f6f6}
+#wafpro-app .wp-site-tbl .wp-empty, .wp-modal .wp-site-tbl .wp-empty{height:120px;color:#999;text-align:center}
+/* bt-link */
+.wp-lnk{color:#20a53a;cursor:pointer}
+.wp-lnk:hover{color:#1d9534;text-decoration:none}
+.wp-lnk.err{color:#ef0808}
+.wp-lnk.err:hover{color:#c81e1e}
+/* bt-tips-ul: the help list under tables */
+#wafpro-app .wp-site-tips, .wp-modal .wp-site-tips{display:flex;flex-direction:column;gap:4px;margin:16px 0 0;padding:0;
+  list-style:disc outside;line-height:20px;color:#999;font-size:12px}
+#wafpro-app .wp-site-tips li, .wp-modal .wp-site-tips li{margin-left:1.5em}
+/* naive switch: medium 40x22 (18px knob), small 28x16 (12px knob) */
+.wp-modal .wp-sw, #wafpro-app .wp-sw{width:40px;height:22px}
+.wp-modal .wp-sw .sl, #wafpro-app .wp-sw .sl{border-radius:11px;background:rgba(0,0,0,.14)}
+.wp-modal .wp-sw .sl::before, #wafpro-app .wp-sw .sl::before{width:18px;height:18px;left:2px;top:2px;
+  box-shadow:0 1px 4px 0 rgba(0,0,0,.3),inset 0 0 1px 0 rgba(0,0,0,.05)}
+.wp-modal .wp-sw input:checked + .sl, #wafpro-app .wp-sw input:checked + .sl{background:#20a53a}
+.wp-modal .wp-sw input:checked + .sl::before, #wafpro-app .wp-sw input:checked + .sl::before{left:20px}
+.wp-modal .wp-sw.wp-sw-sm, #wafpro-app .wp-sw.wp-sw-sm{width:28px;height:16px}
+.wp-modal .wp-sw.wp-sw-sm .sl, #wafpro-app .wp-sw.wp-sw-sm .sl{border-radius:8px}
+.wp-modal .wp-sw.wp-sw-sm .sl::before, #wafpro-app .wp-sw.wp-sw-sm .sl::before{width:12px;height:12px}
+.wp-modal .wp-sw.wp-sw-sm input:checked + .sl::before, #wafpro-app .wp-sw.wp-sw-sm input:checked + .sl::before{left:14px}
+/* Website Configuration [site]: p-20px, "flex mb-16px" switch row (16px label), table max 410px */
+.wp-wc{padding:20px;font-size:12px}
+.wp-wc-top{display:flex;align-items:center;margin-bottom:16px}
+.wp-wc-top span{margin-right:10px;font-size:16px;color:#3a424d}
+.wp-wc-box{max-height:410px;overflow-y:auto;border:1px solid #dcdfe6;border-radius:10px}
+.wp-wc .wp-site-tips{margin-top:10px}
+.wp-wc .wc-ps{white-space:normal;line-height:20px}
+.wp-wc .wc-ps .red{color:#e73a33}
+/* naive buttons, medium */
+.wp-modal .wp-btn{height:32px;padding:0 12px;border-radius:6px;font-size:12px;border:1px solid #dcdfe6;color:#3a424d;background:#fff}
+.wp-modal .wp-btn:hover{border-color:#bce4c4;background:#f4fbf5;color:#20a53a}
+.wp-modal .wp-btn.primary{background:#20a53a;border-color:#20a53a;color:#fff}
+.wp-modal .wp-btn.primary:hover{background:#1d9534;border-color:#1d9534;color:#fff}
+.wp-modal .wp-in{height:32px;border:1px solid #dcdfe6;border-radius:10px;padding:0 8px;font-size:12px;color:#333}
+.wp-modal .wp-in:hover, .wp-modal .wp-in:focus{border-color:#20a53a}
+/* ---------- naive-ui form (n-form, label-width 160): right-aligned 12px label
+   with 20px gap, 32px controls, 20px feedback space under every item ---------- */
+.wp-nf{display:flex;align-items:flex-start;margin-bottom:20px;font-size:12px}
+.wp-nf-l{flex:none;width:160px;padding-right:20px;box-sizing:border-box;text-align:right;line-height:32px;color:#3a424d}
+.wp-nf-c{flex:1;min-width:0;display:flex;align-items:center;flex-wrap:wrap;gap:8px;min-height:32px}
+.wp-nf-u{color:#999;font-size:12px}
+.wp-nf-desc{flex-basis:100%;width:320px;margin-top:6px;color:#999;line-height:20px}
+.wp-nf-err{flex-basis:100%;margin-top:12px;color:#e73a33;line-height:20px}
+.wp-nf-col{display:flex;flex-direction:column;align-items:flex-start;min-width:0}
+.wp-nf-line{display:flex;align-items:center;flex-wrap:wrap;gap:8px}
+.wp-nf-line .sc-ipm{display:inline-flex;align-items:center;gap:8px;margin-left:4px}
+.wp-modal .wp-nnum{-moz-appearance:textfield}
+.wp-modal .wp-nnum::-webkit-inner-spin-button, .wp-modal .wp-nnum::-webkit-outer-spin-button{-webkit-appearance:none;margin:0}
+.wp-nta{width:100%;min-height:66px;height:auto;padding:5px 8px;line-height:22px;resize:vertical;font-family:inherit}
+.wp-nradio{display:flex;flex-wrap:wrap;gap:8px 24px;line-height:32px}
+.wp-nradio label{display:inline-flex;align-items:center;gap:8px;cursor:pointer;color:#3a424d}
+.wp-nradio input{appearance:none;-webkit-appearance:none;width:14px;height:14px;margin:0;border:1px solid #dcdfe6;border-radius:50%;
+  cursor:pointer;position:relative;background:#fff;transition:all .2s}
+.wp-nradio input:checked{border-color:#20a53a;box-shadow:inset 0 0 0 3px #fff;background:#20a53a}
+.wp-ncb{display:inline-flex;align-items:center;gap:8px;margin-left:8px;cursor:pointer;color:#131313}
+/* help "?" next to a select (stock: a grey question-circle with an n-popover) */
+.wp-help{display:inline-flex;align-items:center;justify-content:center;width:14px;height:14px;border:1px solid #999;border-radius:50%;
+  color:#999;font-size:10px;line-height:1;cursor:help;flex:none}
+.wp-help-pop{width:300px;color:#666;line-height:18px;white-space:normal}
+.wp-help-pop .t{font-weight:700;margin-bottom:4px;color:#3a424d}
+.wp-help-pop .d{margin-bottom:10px}
+.wp-help-pop .d:last-child{margin-bottom:0}
+.wp-th{display:inline-flex;align-items:center}
+#wafpro-app .wp-th .wp-qm{margin-left:6px}
+.wp-modal .red, .wp-site-tips .red, li.red{color:#e73a33}
+.wp-modal li.red{color:#e73a33}
+.wp-modal code.wp-rule{font:12px/1.5 ui-monospace,Menlo,Consolas,monospace;color:#3a424d;background:none;padding:0}
+.wp-confirm-ul{margin:0;padding-left:18px;list-style:disc;line-height:22px}
+.wp-cf-t{margin-bottom:4px;color:#131313;font-size:14px;font-weight:700}
+/* n-select multiple (Regional Verification) */
+.wp-cs{position:relative;width:320px}
+.wp-cs-box{min-height:32px;border:1px solid #dcdfe6;border-radius:10px;padding:3px 8px;display:flex;flex-wrap:wrap;gap:4px;
+  align-items:center;cursor:pointer;background:#fff;box-sizing:border-box}
+.wp-cs.open .wp-cs-box, .wp-cs-box:hover{border-color:#20a53a}
+.wp-cs-box .ph{color:#999}
+.wp-cs-tag{display:inline-flex;align-items:center;gap:4px;height:24px;padding:0 7px;border-radius:6px;background:#f2f5f9;color:#3a424d}
+.wp-cs-tag i{font-style:normal;cursor:pointer;color:#999}
+.wp-cs-drop{display:none;position:absolute;z-index:10;left:0;right:0;top:100%;margin-top:4px;background:#fff;border-radius:10px;
+  box-shadow:0 3px 6px -4px rgba(0,0,0,.12),0 6px 16px 0 rgba(0,0,0,.08),0 9px 28px 8px rgba(0,0,0,.05)}
+.wp-cs.open .wp-cs-drop{display:block}
+.wp-cs-head{display:flex;gap:6px;padding:8px;border-bottom:1px solid #eee}
+.wp-cs-head .wp-in{flex:1;height:28px}
+.wp-cs-head .wp-btn{height:28px;flex:1;justify-content:center}
+.wp-cs-list{max-height:220px;overflow-y:auto;padding:4px 0}
+.wp-cs-opt{padding:0 12px;line-height:34px;cursor:pointer;color:#3a424d}
+.wp-cs-opt:hover{background:#f2f5f9}
+.wp-cs-opt.on{color:#20a53a}
+.wp-cs-opt.on::after{content:'\2713';float:right}
+/* list dialogs: "flex mb-16px" input row + primary Add */
+.wp-ld-add{display:flex;gap:16px;margin-bottom:16px}
+.wp-ld-add .wp-in{flex:1;min-width:0}
+.wp-slog-top{display:flex;align-items:center;gap:8px;margin-bottom:16px;color:#3a424d}
+.wp-slog-range .wp-ico{width:14px;height:14px;stroke:#999}
+.wp-slog-range span{color:#999}
+.wp-wc .wc-extra td{border-top:1px solid #dcdfe6}

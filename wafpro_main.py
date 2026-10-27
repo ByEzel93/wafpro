@@ -297,15 +297,45 @@ class wafpro_main:
         # per-site halves of the global SQL injection / XSS / command
         # execution / malicious upload / malicious download switches
         'sqli': True, 'xss': True, 'rce': True, 'upload': True, 'download': True,
+        # Request defence: malicious requests within retry_cycle seconds
+        # ban the IP for retry_time seconds. 0 = use the Global values.
+        'tolerate': True, 'retry': 0, 'retry_cycle': 0, 'retry_time': 0,
+        # Spider pond: off = every search engine crawler is refused; the
+        # per-crawler list holds "Name=status" for crawlers refused here
+        'spider': True, 'spider_off': '',
+        # CDN: request headers holding the visitor IP, tried in order; the
+        # first or the last address of a list
+        'cdn_headers': 'cf-connecting-ip,x-forwarded-for,x-real-ip', 'cdn_first': False,
+        # read-only mode: only GET / HEAD / OPTIONS reach the site
+        'readonly': False,
+        # CC (stock "Set CC Rules"): URL CC defense = over the limit, the
+        # visitor is asked to verify on that URL instead of being banned;
+        # cc_verify = verification method; single IP defense = requests per
+        # IP per 24h; cc_country = regions that always verify
+        'cc_url': True, 'cc_verify': 'js',
+        'cc_ipmax_open': False, 'cc_ipmax': 10000, 'cc_ipmax_static': False,
+        'cc_country': '',
+        # Crawl Protection: dynamic encryption of HTML pages
+        'enc': False, 'enc_text': '',
+        # Waiting room: wait_limit = QPS that triggers it, wait_users = active
+        # visitors let in, wait_time = minutes a visitor stays active
+        'wait_users': 50, 'wait_time': 10, 'wait_text': '',
     }
     SITE_BOOL_FIELDS = ('open', 'get', 'post', 'cookie', 'ua', 'scan', 'cc_open',
                         'cdn', 'fake_spider', 'smart_cc', 'crawl', 'wait',
                         'php_guard', 'form_strict', 'browser', 'nday', 'idc',
-                        'sqli', 'xss', 'rce', 'upload', 'download')
+                        'sqli', 'xss', 'rce', 'upload', 'download', 'tolerate', 'spider',
+                        'cdn_first', 'readonly', 'cc_url', 'cc_ipmax_open', 'cc_ipmax_static', 'enc')
     SITE_INT_FIELDS = ('cc_limit', 'cc_cycle', 'cc_block', 'crawl_limit', 'wait_limit',
-                       'body_max')
-    SITE_TEXT_FIELDS = ('deny_ext', 'upload_ext', 'php_path')
-    SITE_CHOICE_FIELDS = {'cc_mode': ('block', 'challenge'), 'cc_key': ('ip', 'url', 'path', 'ipua')}
+                       'body_max', 'retry', 'retry_cycle', 'retry_time', 'cc_ipmax',
+                       'wait_users', 'wait_time')
+    SITE_TEXT_FIELDS = ('deny_ext', 'upload_ext', 'php_path', 'spider_off', 'cdn_headers',
+                        'cc_country', 'enc_text', 'wait_text')
+    # cc_mode: block = Standard Mode, enhanced = Enhanced Mode (every page
+    # load verifies); 'challenge' is the pre-2.2.4 name of block + cc_url
+    SITE_CHOICE_FIELDS = {'cc_mode': ('block', 'enhanced', 'challenge'),
+                          'cc_key': ('ip', 'url', 'path', 'ipua'),
+                          'cc_verify': ('browser', 'js', 'code', 'renji', 'huadong')}
     # panel project types whose requests reach PHP
     PHP_PROJECT_TYPES = ('PHP', 'WP', 'WP2', '')
 
@@ -350,6 +380,12 @@ class wafpro_main:
                 if k not in conf:
                     conf[k] = v
                     changed = True
+            # 2.2.4: the old "challenge" CC mode is Standard Mode with URL CC
+            # defense on
+            if conf.get('cc_mode') == 'challenge':
+                conf['cc_mode'] = 'block'
+                conf['cc_url'] = True
+                changed = True
         if changed:
             self._write_json(self.SITES, data)
         return data
@@ -1113,10 +1149,32 @@ p{margin:0;color:#606266}
 
         # name<TAB>key=value... — see parse_sites in wafpro.lua
         lines = []
+        keep = set()
+        rule_off = self._rule_off()
         for name, s in sorted(self._sites().items()):
             if not isinstance(s, dict):
                 continue
             f = [name]
+            # CC regional verification: the chosen countries' ranges, packed
+            # per site (cv_<hash>.bin / .bin6)
+            codes = self._split_csv(s.get('cc_country', ''))
+            if codes and s.get('cc_mode') != 'enhanced':
+                import hashlib
+                cv = 'cv_' + hashlib.md5(name.encode('utf-8')).hexdigest()[:12] + '.bin'
+                self._pack(self._ranges_for(codes) or [], RULE_DIR + cv)
+                self._pack6(self._ranges6_for(codes) or [], RULE_DIR + cv + '6')
+                keep.add(cv)
+                keep.add(cv + '6')
+                f.append('cv=' + cv)
+            # rule sets with rules switched off for this site: their own copy
+            sets = []
+            for rs, off in sorted((rule_off.get(name) or {}).items()):
+                if rs in self.RULE_NAMES and off:
+                    rules = [r['rule'] for r in self._rule_set(rs) if r.get('open') and r['rule'] not in off]
+                    self._w('r_{}@{}.txt'.format(rs, name), '\n'.join(rules))
+                    sets.append(rs)
+            if sets:
+                f.append('rx=' + ','.join(sets))
             for k in self.SITE_BOOL_FIELDS:
                 f.append('{}={}'.format(k, '1' if s.get(k) else '0'))
             for k in self.SITE_INT_FIELDS:
@@ -1162,6 +1220,9 @@ p{margin:0;color:#606266}
         sp = self._spiders() or {}
         self._pack_set('spider', sp.get('ranges', []), sp.get('ranges6', []))
         self._w('spider_ua.txt', self.SPIDER_UA)
+        self._w('spiders.txt', '\n'.join('{}|{}'.format(n, rx) for n, rx in self.SPIDER_NAMES))
+        sb = self._scan_black()
+        self._w('scan_black.txt', '\n'.join('{}={}'.format(k, sb[k]) for k in ('header', 'cookie', 'args') if sb[k]))
         self._w('crawl_ua.txt', self.CRAWL_UA)
         ml = self._malicious() or {}
         self._pack_set('malicious', ml.get('ranges', []), ml.get('ranges6', []))
@@ -1179,7 +1240,6 @@ p{margin:0;color:#606266}
 
         region = self._rules()
         rl = []
-        keep = set()
         for r in region:
             keep.add(r['id'] + '.bin')
             # packed ranges are (re)built here when missing: geo_update
@@ -1263,6 +1323,14 @@ p{margin:0;color:#606266}
         # or it gets deleted the moment it is created.
         fixed = set(n + '.bin' for n in self.FIXED_SETS) | set(n + '.bin6' for n in self.FIXED_SETS)
         for fn in os.listdir(RULE_DIR):
+            if '@' in fn and fn.startswith('r_') and fn.endswith('.txt'):
+                rs, site = fn[2:-4].split('@', 1)
+                if rs not in ((rule_off.get(site) or {})):
+                    try:
+                        os.remove(RULE_DIR + fn)
+                    except Exception:
+                        pass
+                continue
             if (fn.endswith('.bin') or fn.endswith('.bin6') or (fn.startswith('r') and fn.endswith('.html'))) \
                     and fn not in keep and fn not in fixed:
                 try:
@@ -1793,8 +1861,17 @@ p{margin:0;color:#606266}
 
     def _log_files(self, site, date):
         '''Pick the log files matching a site + date filter.
-        date: '' or 'all' = every day, 'today', 'yesterday', or YYYY-MM-DD.'''
+        date: '' or 'all' = every day, 'today', 'yesterday', 'l7' / 'l30'
+        (the last 7 / 30 days), YYYY-MM-DD, or YYYY-MM-DD~YYYY-MM-DD.'''
         want = None
+        lo = hi = None
+        if date in ('l7', 'l30'):
+            lo = time.strftime('%Y-%m-%d', time.localtime(time.time() - (7 if date == 'l7' else 30) * 86400))
+            hi = time.strftime('%Y-%m-%d')
+            date = 'all'
+        elif date and '~' in date:
+            lo, hi = date.split('~', 1)
+            date = 'all'
         if date in ('today', ''):
             want = time.strftime('%Y-%m-%d') if date == 'today' else None
         elif date == 'yesterday':
@@ -1814,6 +1891,8 @@ p{margin:0;color:#606266}
             if not re.match(r'^\d{4}-\d{2}-\d{2}$', d):
                 continue
             if want and d != want:
+                continue
+            if lo and not (lo <= d <= hi):
                 continue
             files.append((site or '', WAF_LOG_DIR + f))
         return files
@@ -2652,6 +2731,147 @@ p{margin:0;color:#606266}
             {'index': i, 'rule': x.get('rule', ''), 'ps': x.get('ps', ''),
              'open': bool(x.get('open'))}
             for i, x in enumerate(data)]}
+
+    # ---- per-site rule switches (Website Configuration > Set / Rule) ----
+    # {site: {rule set: [patterns switched off for that site]}}. A rule only
+    # runs for a site when it is on globally (Global > Rule) AND not off here,
+    # so the list starts from what Global has on, as in the stock WAF.
+    RULE_OFF_FILE = PLUGIN_PATH + 'site_rule_off.json'
+
+    def _rule_off(self):
+        d = self._read_json(self.RULE_OFF_FILE, {})
+        return d if isinstance(d, dict) else {}
+
+    def site_rule_list(self, get):
+        site = getattr(get, 'siteName', '')
+        name = getattr(get, 'rule_name', '')
+        if site not in self._sites() or name not in self.RULE_NAMES:
+            return {'status': False, 'msg': 'Not found'}
+        off = set((self._rule_off().get(site) or {}).get(name) or [])
+        return {'status': True, 'data': [
+            {'index': i, 'rule': x.get('rule', ''), 'ps': x.get('ps', ''), 'open': x.get('rule', '') not in off}
+            for i, x in enumerate(self._rule_set(name)) if x.get('open')]}
+
+    def site_rule_toggle(self, get):
+        site = getattr(get, 'siteName', '')
+        name = getattr(get, 'rule_name', '')
+        try:
+            idx = int(getattr(get, 'index', -1))
+        except Exception:
+            idx = -1
+        rules = self._rule_set(name) if name in self.RULE_NAMES else []
+        if site not in self._sites() or idx < 0 or idx >= len(rules):
+            return public.returnMsg(False, 'Rule not found')
+        rule = rules[idx].get('rule', '')
+        data = self._rule_off()
+        off = data.setdefault(site, {}).setdefault(name, [])
+        on = str(getattr(get, 'open', '1')) in ('1', 'true', 'True')
+        if on and rule in off:
+            off.remove(rule)
+        elif not on and rule not in off:
+            off.append(rule)
+        if not off:
+            data[site].pop(name, None)
+        if not data[site]:
+            data.pop(site, None)
+        self._write_json(self.RULE_OFF_FILE, data)
+        self._compile()
+        return public.returnMsg(True, 'Setup successfully')
+
+    # ---- Common Scanner Filtering Rules: header / cookie / args ----
+    # Fingerprints that vulnerability scanners leave in requests they send.
+    # One regular expression each; matched against names and values.
+    SCAN_BLACK_FILE = PLUGIN_PATH + 'scan_black.json'
+    DEFAULT_SCAN_BLACK = {
+        'header': r'(acunetix|netsparker|appscan|nessus|nikto|sqlmap|burpcollaborator|xray|nuclei|wvs|rsa-nessus|qualys)',
+        'cookie': r'(acunetix|netsparker|appscan|nessus|nikto|sqlmap|wvs_|xray)',
+        'args': r'(acunetix_wvs|netsparker|appscan|nessus|sqlmap|burpcollaborator|xray|nuclei|wvstest|testasp)',
+    }
+
+    def _scan_black(self):
+        d = self._read_json(self.SCAN_BLACK_FILE, None)
+        if not isinstance(d, dict):
+            d = dict(self.DEFAULT_SCAN_BLACK)
+        return {k: str(d.get(k, '')) for k in ('header', 'cookie', 'args')}
+
+    def scan_black_get(self, get):
+        d = self._scan_black()
+        d['status'] = True
+        return d
+
+    def scan_black_save(self, get):
+        out = {}
+        for k in ('header', 'cookie', 'args'):
+            v = str(getattr(get, k, '') or '').strip().replace('\n', '').replace('\r', '')
+            if v:
+                try:
+                    re.compile(v)
+                except re.error as ex:
+                    return public.returnMsg(False, '{}: invalid regular expression ({})'.format(k.capitalize(), ex))
+            out[k] = v
+        self._write_json(self.SCAN_BLACK_FILE, out)
+        self._compile()
+        return public.returnMsg(True, 'Setup successfully')
+
+    # ---- Spider pond, per site ----
+    # Name and the user-agent fragments that identify each crawler. Google,
+    # Bing and Apple are also checked against their published IPs (fake
+    # spider); the others are recognised by user-agent only.
+    SPIDER_NAMES = [
+        ('Google', r'googlebot|adsbot-google|mediapartners-google|storebot-google|google-inspectiontool|googleother'),
+        ('Bing', r'bingbot|adidxbot|bingpreview|msnbot'),
+        ('Apple', r'applebot'),
+        ('Baidu', r'baiduspider'),
+        ('Yandex', r'yandexbot|yandeximages'),
+        ('Sogou', r'sogou web spider|sogou inst spider'),
+        ('360', r'360spider|haosouspider'),
+        ('Yahoo', r'yahoo! slurp'),
+        ('DuckDuckGo', r'duckduckbot'),
+        ('Bytedance', r'bytespider'),
+        ('Petal', r'petalbot'),
+        ('Facebook', r'facebookexternalhit|facebookcatalog'),
+    ]
+
+    def site_spiders(self, get):
+        site = getattr(get, 'siteName', '')
+        sites = self._sites()
+        if site not in sites:
+            return {'status': False, 'msg': 'Site not found'}
+        off = self._spider_off(sites[site].get('spider_off', ''))
+        return {'status': True, 'data': [
+            {'name': n, 'return': off.get(n, 444), 'status': n not in off} for n, _ in self.SPIDER_NAMES]}
+
+    @staticmethod
+    def _spider_off(v):
+        out = {}
+        for part in str(v or '').split(','):
+            if '=' in part:
+                n, c = part.split('=', 1)
+                try:
+                    out[n.strip()] = int(c)
+                except ValueError:
+                    pass
+        return out
+
+    def site_spider_set(self, get):
+        site = getattr(get, 'siteName', '')
+        name = getattr(get, 'spider', '')
+        data = self._sites()
+        if site not in data or name not in [n for n, _ in self.SPIDER_NAMES]:
+            return public.returnMsg(False, 'Not found')
+        off = self._spider_off(data[site].get('spider_off', ''))
+        if str(getattr(get, 'open', '1')) in ('1', 'true', 'True'):
+            off.pop(name, None)
+        else:
+            try:
+                code = int(getattr(get, 'code', 444))
+            except Exception:
+                code = 444
+            off[name] = code if code in (403, 404, 444, 500, 502, 503) else 444
+        data[site]['spider_off'] = ','.join('{}={}'.format(k, v) for k, v in sorted(off.items()))
+        self._write_json(self.SITES, data)
+        self._compile()
+        return public.returnMsg(True, 'Setup successfully')
 
     def exclusive_rules(self, get):
         '''Exclusive Rules tab: the N-day virtual patches, the global switch
@@ -3639,6 +3859,11 @@ p{margin:0;color:#606266}
         # fields added in later versions read as their default
         c = dict(self.DEFAULT_SITE)
         c.update(data[name])
+        # Request defence shows the Global numbers while the site has none
+        cfg = self._config()
+        for k in ('retry', 'retry_cycle', 'retry_time'):
+            c['g_' + k] = cfg.get(k, 0)
+        c['retry_eff'] = c.get('retry') or cfg.get('retry', 0)
         c['status'] = True
         c['name'] = name
         return c
@@ -3685,7 +3910,10 @@ p{margin:0;color:#606266}
     SITE_RULES_JSON = PLUGIN_PATH + 'site_rules.json'
     # ucc: URL CC defense, uverify: URL enhancement mode (browser check),
     # vwhite: machine verification whitelist, umethod: URL request type
-    SITE_RULE_KINDS = ('dpath', 'leech', 'purl', 'api', 'repl', 'ucc', 'uverify', 'vwhite', 'umethod')
+    # ufilter: URL filter (stock url_rule) — a parameter value containing
+    # the filter at that URL is refused
+    SITE_RULE_KINDS = ('dpath', 'leech', 'purl', 'api', 'repl', 'ucc', 'uverify', 'vwhite', 'umethod',
+                       'ufilter')
     API_METHODS = ('GET', 'POST', 'PUT', 'PATCH', 'DELETE', 'HEAD', 'OPTIONS')
 
     def _site_rules(self):
@@ -3726,8 +3954,8 @@ p{margin:0;color:#606266}
             value = str(raw.get('value', '')).strip()
             if not re.match(r'^[A-Za-z0-9_.-]{1,64}$', param):
                 return None, 'Parameter name: letters, digits, _ . -'
-            if len(value) < 6:
-                return None, 'Use a parameter value of at least 6 characters'
+            if not value:
+                return None, 'Please enter address or parameter.'
             return {'path': v, 'param': param, 'value': value}, None
         if kind == 'api':
             v, err = regex(raw.get('path'), 'API path pattern')
@@ -3766,6 +3994,17 @@ p{margin:0;color:#606266}
                 return None, 'Choose at least one request type'
             mode = raw.get('mode') if raw.get('mode') in ('allow', 'refuse') else 'refuse'
             return {'path': v, 'mode': mode, 'methods': ','.join(methods)}, None
+        if kind == 'ufilter':
+            path = str(raw.get('path', '')).strip()
+            rule = str(raw.get('rule', '')).strip()
+            if not path or not rule:
+                return None, 'Please enter address or filtering rule.'
+            for v in (path, rule):
+                try:
+                    re.compile(v)
+                except re.error as ex:
+                    return None, 'Invalid regular expression: {}'.format(ex)
+            return {'path': path, 'rule': rule}, None
         if kind == 'repl':
             frm = str(raw.get('from', ''))
             if not frm.strip():
@@ -3854,6 +4093,8 @@ p{margin:0;color:#606266}
                     out.append('|'.join([k, site, enc(x['path'])]))
             for x in kinds.get('umethod', []):
                 out.append('|'.join(['umethod', site, enc(x['path']), x['mode'], enc(x['methods'])]))
+            for x in kinds.get('ufilter', []):
+                out.append('|'.join(['ufilter', site, enc(x['path']), enc(x['rule'])]))
         return '\n'.join(out)
 
     # ----------------------------------------------------------------

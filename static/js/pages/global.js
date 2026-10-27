@@ -123,7 +123,8 @@
         { t: 'From-data protocol', d: 'From-data is the default format for file uploads, and the firewall only trusts the default ' +
           'format. Turning this on rejects malformed upload bodies on every website.', sw: 'form_all' },
         { t: 'Malicious Download Defense', d: 'Detect malicious downloads and prevent backup files, source code, and other critical data from being downloaded',
-          n: 'Uses each website\'s forbidden extensions (WebSite › Set).', sw: 'm_download', st: 'black_status', btns: [resp] },
+          n: 'Backup, source and secret file probes (Rule), and each website\'s forbidden extensions (WebSite › Set).',
+          sw: 'm_download', st: 'black_status', btns: [['Rule', rules('scan')], resp] },
         { t: 'Custom rule interception', d: 'Detect known exploits (PHP code execution, framework RCE, SSRF probes) with editable rules',
           sw: 'm_nday', st: 'get_status', btns: [['Rule', rules('nday')], resp] },
         { t: 'Malicious crawler defense', d: 'Detect malicious crawlers and prevent malicious crawlers from accessing the website',
@@ -133,7 +134,7 @@
           sw: 'm_cookie', st: 'cookie_status', btns: [['Rule', rules('cookie')], resp] },
         { t: 'Malicious Scanner Defense', d: 'Detect malicious scanners, prevent all kinds of scanners, Trojan connection tools, and access to the website',
           n: 'If your website is doing security testing, it may be blocked.',
-          sw: 'm_scan', st: 'scan_status', btns: [['Set', rules('scan'), 1]] },
+          sw: 'm_scan', st: 'scan_status', btns: [['Set', function () { W.scannerDialog(); }, 1]] },
         { t: 'Directory Scan Defense', d: 'Prevent directory/file scanning, and perform statistical interception through the 404 status code of the access.',
           n: 'If your webpage has many 404 images, it may cause access to be blocked.',
           sw: 'dirscan', btns: [['Set', function () { dirscanDialog(c); }, 1]] },
@@ -540,7 +541,7 @@
     ['post', 'POST filter', 'Matched against urlencoded form bodies.'],
     ['cookie', 'Cookie filter', 'Matched against the Cookie header.'],
     ['ua', 'User-Agent filter', 'Matched against the User-Agent header.'],
-    ['scan', 'Scanner', 'Matched against the request path.'],
+    ['scan', 'Malicious download', 'Matched against the request path (backups, source, secrets).'],
     ['nday', 'N-day exploits', 'Virtual patches for public CVEs; matched against the decoded request line and form body.']
   ];
   function ruleSetDialog(name) {

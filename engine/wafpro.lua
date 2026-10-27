@@ -15,7 +15,7 @@
 -- |   rule/*.bin6       packed sorted IPv6 ranges (32B/range), same idea
 -- |   rule/version      bumped on every change -> workers resync, no reload
 -- +-------------------------------------------------------------------
-local _M = { _VERSION = '2.2.1' }
+local _M = { _VERSION = '2.2.4' }
 
 local RULE_DIR = '/www/server/wafpro/rule/'
 local LOG_DIR = '/www/wwwlogs/wafpro/'
@@ -281,10 +281,19 @@ end
 -- every switch one column the day a field was added, and nothing noticed.
 -- Values never contain a tab (the panel strips them).
 local SITE_NUM = { cc_limit = 120, cc_cycle = 60, cc_block = 600, crawl_limit = 30,
-                   wait_limit = 200, body_max = 0 }
+                   wait_limit = 200, body_max = 0, retry = 0, retry_cycle = 0, retry_time = 0,
+                   cc_ipmax = 10000, wait_users = 50, wait_time = 10 }
 local SITE_SET = { deny_ext = true, upload_ext = true }
-local SITE_LIST = { php_path = true }
-local SITE_STR = { cc_mode = 'block', cc_key = 'ip' }
+local SITE_LIST = { php_path = true, cdn_headers = true }
+local SITE_STR = { cc_mode = 'block', cc_key = 'ip', cc_verify = 'js', enc_text = '', wait_text = '',
+                   spider_off = '', cc_country = '', cv = '', rx = '' }
+
+-- "Name=status,Name=status" -> { Name = status }
+local function parse_spider_off(v)
+    local t = {}
+    for name, code in (v or ''):gmatch('([^,=]+)=(%d+)') do t[name] = tonumber(code) end
+    return t
+end
 
 local function parse_sites(path)
     local t = {}
@@ -308,8 +317,30 @@ local function parse_sites(path)
                     else sc[k] = (v == '1') end
                 end
             end
+            sc.spider_map = parse_spider_off(sc.spider_off)
+            -- CC regional verification ranges, packed per site by the panel
+            if sc.cv ~= '' then
+                sc.cvset = { v4 = read_all(RULE_DIR .. sc.cv), v6 = read_all(RULE_DIR .. sc.cv .. '6') }
+            end
+            -- rule sets with rules switched off for this site: its own copy
+            if sc.rx ~= '' then
+                sc.rxs = {}
+                for set in sc.rx:gmatch('[^,]+') do
+                    sc.rxs[set] = read_lines(RULE_DIR .. 'r_' .. set .. '@' .. name .. '.txt')
+                end
+            end
             t[name] = sc
         end
+    end
+    return t
+end
+
+-- name|user-agent regex per line (Spider pond)
+local function parse_spiders(path)
+    local t = {}
+    for _, line in ipairs(read_lines(path)) do
+        local n, rx = line:match('^([^|]+)|(.+)$')
+        if n then t[#t + 1] = { name = n, rx = rx } end
     end
     return t
 end
@@ -333,7 +364,7 @@ local function parse_site_rules(path)
             local s = out[site]
             if not s then
                 s = { dpath = {}, leech = {}, purl = {}, api = {}, repl = {},
-                      ucc = {}, uverify = {}, vwhite = {}, umethod = {} }
+                      ucc = {}, uverify = {}, vwhite = {}, umethod = {}, ufilter = {} }
                 out[site] = s
             end
             if typ == 'dpath' then
@@ -361,6 +392,8 @@ local function parse_site_rules(path)
             elseif typ == 'umethod' then      -- URL request type: path|allow/refuse|methods
                 s.umethod[#s.umethod + 1] = { path = pdec(f[3]), allow = f[4] == 'allow',
                                               methods = parse_set(pdec(f[5])) }
+            elseif typ == 'ufilter' then      -- URL filter: path|value regex
+                s.ufilter[#s.ufilter + 1] = { path = pdec(f[3]), rule = pdec(f[4]) }
             end
         end
     end
@@ -539,7 +572,8 @@ local function apply_globals(sites, cfg)
         if cfg.form_all == true then sc.form_strict = true end
         -- malicious upload / download defense switches (global, then the site's)
         if cfg.m_upload == false or sc.upload == false then sc.upload_ext = {} end
-        if cfg.m_download == false or sc.download == false then sc.deny_ext = {} end
+        if cfg.m_download == false then sc.download = false end
+        if sc.download == false then sc.deny_ext = {} end
         if sc.body_max <= 0 and cfg.http_all == true then sc.body_max = tonumber(cfg.body_max_all) or 0 end
     end
 end
@@ -597,6 +631,8 @@ function _M.load()
         r_ua = read_lines(RULE_DIR .. 'r_ua.txt'),
         r_scan = read_lines(RULE_DIR .. 'r_scan.txt'),
         r_nday = read_lines(RULE_DIR .. 'r_nday.txt'),
+        scan_black = parse_kv(RULE_DIR .. 'scan_black.txt'),
+        spiders = parse_spiders(RULE_DIR .. 'spiders.txt'),
         url_white = read_lines(RULE_DIR .. 'url_white.txt'),
         url_black = read_lines(RULE_DIR .. 'url_black.txt'),
         url_keyword = read_lines(RULE_DIR .. 'url_keyword.txt'),
@@ -745,12 +781,15 @@ end
 -- Auto-ban bookkeeping: too many blocks inside retry_cycle -> banned.
 local function auto_ban(ip, site, rule)
     local cfg = state.cfg or {}
-    local retry = tonumber(cfg.retry) or 0
+    -- Request defence: the site's own numbers when set, else the Global ones
+    local sc = state.sites and state.sites[site]
+    if sc and sc.tolerate == false then return end
+    local retry = (sc and sc.retry > 0) and sc.retry or tonumber(cfg.retry) or 0
     if retry <= 0 then return end                 -- feature off
     local dict = ngx.shared.wafpro_cc
     if not dict then return end
 
-    local cycle = tonumber(cfg.retry_cycle) or 60
+    local cycle = (sc and sc.retry_cycle > 0) and sc.retry_cycle or tonumber(cfg.retry_cycle) or 60
     local key = 'b:' .. ip
     local n = dict:incr(key, 1)
     if not n then
@@ -759,7 +798,7 @@ local function auto_ban(ip, site, rule)
     end
     if n < retry then return end
     dict:delete(key)
-    ban(ip, tonumber(cfg.retry_time) or 600, site, rule, n)
+    ban(ip, (sc and sc.retry_time > 0) and sc.retry_time or tonumber(cfg.retry_time) or 600, site, rule, n)
 end
 
 -- ip is the resolved client address (honours cdn/X-Forwarded-For), not
@@ -778,6 +817,15 @@ local function html_esc(s)
     return (tostring(s or ''):gsub('[&<>"\']', { ['&'] = '&amp;', ['<'] = '&lt;', ['>'] = '&gt;',
                                                 ['"'] = '&quot;', ["'"] = '&#39;' }))
 end
+-- a whole HTML answer from the access phase
+local function page_out(status, html)
+    ngx.status = status
+    ngx.header['Content-Type'] = 'text/html; charset=utf-8'
+    ngx.header['Cache-Control'] = 'no-store'
+    ngx.print(html)
+    return ngx.exit(status)
+end
+
 local function block_page(ip, rule, status)
     local tpl = state.block_html
     if not tpl or tpl == '' or status == 444 or (state.cfg or {}).block_page == false then
@@ -889,6 +937,28 @@ local function client_addr(sc)
             return cf
         end
     end
+    -- the site's CDN headers, in order; a list header (X-Forwarded-For)
+    -- gives its last address that is not LAN / this server, or its first
+    -- one with "Get the first IP"
+    if sc and sc.cdn and #sc.cdn_headers > 0 then
+        for i = 1, #sc.cdn_headers do
+            local v = ngx.var['http_' .. sc.cdn_headers[i]:lower():gsub('-', '_')]
+            if v and v ~= '' then
+                local parts = split(v, ',')
+                local a, b, step = #parts, 1, -1
+                if sc.cdn_first then a, b, step = 1, #parts, 1 end
+                for j = a, b, step do
+                    local p = parts[j]:gsub('^%s+', ''):gsub('%s+$', '')
+                    local kind, key = parse_ip(p)
+                    if kind then
+                        local c = { kind = kind, key = key }
+                        if not in_set(state.lan, c) and not in_set(state.self_ip, c) then return p end
+                    end
+                end
+            end
+        end
+        return ngx.var.remote_addr
+    end
     if (sc and sc.cdn) or (state.cfg or {}).cdn then
         if cf and parse_ip(cf) then return cf end
         local xff = ngx.var.http_x_forwarded_for
@@ -952,19 +1022,23 @@ local function is_api_call()
     return accept:find('application/json', 1, true) ~= nil and not accept:find('text/html', 1, true)
 end
 
-local function cc_check(site, sc, ip, rate)
-    local dict = ngx.shared.wafpro_cc
-    if not dict then return end
-    local api = is_api_call()
-    -- what one "client" is: the IP (default), the IP on one exact URL (with
-    -- or without its query string), or IP + user-agent (many people behind
-    -- one NAT/office address)
+-- What one "client" is for CC (Request Type): the IP (Super strict), the
+-- IP on one exact URL with its query string (Loose) or without it (Standard),
+-- or IP + user-agent (Strict: many people behind one NAT/office address).
+local function cc_key(sc, site, ip, api)
     local who = ip
     local k = sc.cc_key
     if k == 'url' then who = ip .. '|' .. (ngx.var.request_uri or '')
     elseif k == 'path' then who = ip .. '|' .. (ngx.var.uri or '')
     elseif k == 'ipua' then who = ip .. '|' .. (ngx.var.http_user_agent or '') end
-    local key = who .. '|' .. site .. (api and '|a' or '')
+    return who .. '|' .. site .. (api and '|a' or '')
+end
+
+local function cc_check(site, sc, ip, rate)
+    local dict = ngx.shared.wafpro_cc
+    if not dict then return end
+    local api = is_api_call()
+    local key = cc_key(sc, site, ip, api)
     local n = dict:incr(key, 1)
     if not n then
         dict:set(key, 1, sc.cc_cycle)
@@ -1175,16 +1249,49 @@ local function crawl_check(site, sc, ip, ua)
     end
 end
 
--- Waiting room: past wait_limit req/s the site would fall over anyway, so the
--- overflow gets a friendly retry page instead of a timeout or a 502.
+-- Waiting room: once the site takes more than wait_limit requests a second
+-- (0 = always), at most wait_users visitors are active at a time. A visitor
+-- let in keeps a cookie that stays valid while it is active (wait_time
+-- minutes since its last request); everyone else gets the waiting page,
+-- which retries by itself. Active visitors are counted per wait_time window
+-- (this window + the last), which needs no cleanup when they leave.
+local function wait_page(sc)
+    if sc.wait_text ~= '' then
+        return '<!doctype html><html><head><meta charset="utf-8"><meta http-equiv="refresh" content="5">' ..
+            '<meta name="viewport" content="width=device-width,initial-scale=1"><title>Please wait</title>' ..
+            '<style>body{margin:0;font:15px/1.7 -apple-system,"PingFang SC","Microsoft YaHei","Segoe UI",sans-serif;' ..
+            'color:#3a424d;background:#f2f5f9;display:flex;align-items:center;justify-content:center;min-height:100vh}' ..
+            'div{background:#fff;border-radius:10px;padding:32px 40px;max-width:420px;text-align:center}</style></head>' ..
+            '<body><div>' .. html_esc(sc.wait_text) .. '</div></body></html>'
+    end
+    return state.wait_html or '<h1>Please wait</h1><p>The site is busy. Retrying shortly.</p>'
+end
+
 local function wait_check(site, sc, ip, rate)
-    if rate <= sc.wait_limit then return end
-    log_block(ip, site, 'waiting-room', fmt('site at %d/s (limit %d)', rate, sc.wait_limit), 503)
-    ngx.header['Content-Type'] = 'text/html; charset=utf-8'
+    if sc.wait_limit > 0 and rate <= sc.wait_limit then return end
+    local dict = ngx.shared.wafpro_cc
+    if not dict then return end
+    local ttl = math.max(sc.wait_time, 1) * 60
+    local tok = ngx.var.cookie_wafpro_wr
+    if tok and dict:get('wr:' .. site .. ':' .. tok) then
+        dict:set('wr:' .. site .. ':' .. tok, 1, ttl)        -- still active
+        return
+    end
+    local slot = floor(ngx.time() / ttl)
+    local cur = dict:get('wrn:' .. site .. ':' .. slot) or 0
+    local prev = dict:get('wrn:' .. site .. ':' .. (slot - 1)) or 0
+    if cur + prev < sc.wait_users then
+        local n = dict:incr('wrn:' .. site .. ':' .. slot, 1)
+        if not n then dict:set('wrn:' .. site .. ':' .. slot, 1, ttl * 2) end
+        tok = ngx.md5(ip .. ngx.now() .. math.random())
+        dict:set('wr:' .. site .. ':' .. tok, 1, ttl)
+        ngx.header['Set-Cookie'] = 'wafpro_wr=' .. tok .. '; Path=/; SameSite=Lax'
+        return
+    end
+    log_block(ip, site, 'waiting-room', fmt('%d active visitors (limit %d), site at %d/s',
+              cur + prev, sc.wait_users, rate), 503)
     ngx.header['Retry-After'] = '5'
-    ngx.status = 503
-    ngx.say(state.wait_html or '<h1>Please wait</h1><p>The site is busy. Retrying shortly.</p>')
-    return ngx.exit(503)
+    return page_out(503, wait_page(sc))
 end
 
 -- The request body, whether nginx kept it in memory or spilled it to a temp
@@ -1282,21 +1389,155 @@ local function wants_html()
     return accept:find('text/html', 1, true) ~= nil
 end
 
-local function challenge(ips, site, ua, reason)
+-- Verification methods (Set CC Rules > Verification Method):
+--   browser  the page proves it runs JavaScript (a short hash puzzle) and reloads
+--   js       "Redirect": the page sets the cookie and redirects straight back
+--   code     a number shown on the page is typed back
+--   renji    "Captcha": digits drawn as a noisy SVG dot matrix, typed back
+--   huadong  "Slide": a slider dragged to the end
+-- The last three post to /.wafpro-verify; the answer waits in the shared
+-- dict under a one-time nonce for five minutes. Passing sets the same
+-- day-long cookie as the browser check.
+local VERIFY_PATH = '/.wafpro-verify'
+
+-- 5x7 dot-matrix digits for the captcha
+local DIGITS = {
+    ['0'] = { '01110', '10001', '10011', '10101', '11001', '10001', '01110' },
+    ['1'] = { '00100', '01100', '00100', '00100', '00100', '00100', '01110' },
+    ['2'] = { '01110', '10001', '00001', '00010', '00100', '01000', '11111' },
+    ['3'] = { '11110', '00001', '00001', '01110', '00001', '00001', '11110' },
+    ['4'] = { '00010', '00110', '01010', '10010', '11111', '00010', '00010' },
+    ['5'] = { '11111', '10000', '11110', '00001', '00001', '10001', '01110' },
+    ['6'] = { '00110', '01000', '10000', '11110', '10001', '10001', '01110' },
+    ['7'] = { '11111', '00001', '00010', '00100', '01000', '01000', '01000' },
+    ['8'] = { '01110', '10001', '10001', '01110', '10001', '10001', '01110' },
+    ['9'] = { '01110', '10001', '10001', '01111', '00001', '00010', '01100' },
+}
+local function captcha_svg(code)
+    local out = { '<svg xmlns="http://www.w3.org/2000/svg" width="168" height="56" viewBox="0 0 168 56">',
+                  '<rect width="168" height="56" rx="6" fill="#f2f5f9"/>' }
+    for _ = 1, 6 do
+        out[#out + 1] = fmt('<line x1="%d" y1="%d" x2="%d" y2="%d" stroke="#%02x%02x%02x" stroke-width="1"/>',
+            math.random(0, 168), math.random(0, 56), math.random(0, 168), math.random(0, 56),
+            math.random(120, 200), math.random(120, 200), math.random(120, 200))
+    end
+    for i = 1, #code do
+        local g = DIGITS[code:sub(i, i)]
+        local ox, oy = 14 + (i - 1) * 38 + math.random(-3, 3), 10 + math.random(-4, 4)
+        local col = fmt('#%02x%02x%02x', math.random(20, 90), math.random(60, 120), math.random(20, 90))
+        for r = 1, 7 do
+            for c = 1, 5 do
+                if g[r]:sub(c, c) == '1' then
+                    out[#out + 1] = fmt('<rect x="%d" y="%d" width="4" height="4" fill="%s"/>',
+                        ox + (c - 1) * 5 + math.random(0, 1), oy + (r - 1) * 5 + math.random(0, 1), col)
+                end
+            end
+        end
+    end
+    for _ = 1, 40 do
+        out[#out + 1] = fmt('<circle cx="%d" cy="%d" r="1" fill="#9aa"/>', math.random(0, 168), math.random(0, 56))
+    end
+    out[#out + 1] = '</svg>'
+    return concat(out)
+end
+
+local VERIFY_CSS = 'body{margin:0;font:14px/1.6 -apple-system,"PingFang SC","Microsoft YaHei","Segoe UI",sans-serif;' ..
+    'color:#3a424d;background:#f2f5f9;display:flex;align-items:center;justify-content:center;min-height:100vh}' ..
+    '.b{background:#fff;border-radius:10px;box-shadow:0 9px 28px rgba(0,0,0,.06);padding:32px 36px;width:340px;text-align:center}' ..
+    'h1{font-size:18px;margin:0 0 8px;color:#131313;font-weight:500}p{margin:0 0 18px;color:#999;font-size:13px}' ..
+    'input{width:100%;box-sizing:border-box;height:38px;border:1px solid #dcdfe6;border-radius:6px;padding:0 10px;' ..
+    'font-size:16px;letter-spacing:4px;text-align:center;outline:0}input:focus{border-color:#20a53a}' ..
+    'button{margin-top:14px;width:100%;height:38px;border:0;border-radius:6px;background:#20a53a;color:#fff;font-size:14px;cursor:pointer}' ..
+    '.code{font:600 30px/1 ui-monospace,Menlo,monospace;letter-spacing:10px;color:#20a53a;margin:6px 0 18px;user-select:none}' ..
+    '.s{position:relative;height:40px;border-radius:20px;background:#f2f5f9;border:1px solid #dcdfe6;overflow:hidden;user-select:none}' ..
+    '.s i{position:absolute;left:0;top:0;bottom:0;width:0;background:#e9f6ec}' ..
+    '.s b{position:absolute;left:0;top:0;width:40px;height:38px;border-radius:19px;background:#20a53a;cursor:grab;touch-action:none}' ..
+    '.s span{position:relative;line-height:38px;color:#999;font-size:13px;pointer-events:none}'
+
+local function verify_form(title, hint, body, nonce, back, extra)
+    return fmt('<!doctype html><html><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">' ..
+        '<title>%s</title><style>%s</style></head><body><form class="b" method="post" action="%s" id="f">' ..
+        '<h1>%s</h1><p>%s</p>%s<input type="hidden" name="n" value="%s"><input type="hidden" name="r" value="%s">' ..
+        '%s</form></body></html>', title, VERIFY_CSS, VERIFY_PATH, title, hint, body, nonce, html_esc(back), extra or '')
+end
+
+local function challenge(ips, site, ua, reason, method)
     log_block(ips, site, 'challenge', reason, 200)
+    method = method or 'browser'
+    local back = ngx.var.request_uri or '/'
+    if method == 'code' or method == 'renji' or method == 'huadong' then
+        local dict = ngx.shared.wafpro_cc
+        if dict then
+            local nonce = ngx.md5(ips .. ngx.now() .. math.random())
+            local answer = method == 'huadong' and 'slide' or fmt('%04d', math.random(0, 9999))
+            dict:set('vc:' .. nonce, answer .. '|' .. ips, 300)
+            if method == 'code' then
+                return page_out(200, verify_form('Security check', 'Enter the code below to continue',
+                    '<div class="code">' .. answer .. '</div><input name="a" autocomplete="off" autofocus maxlength="4">',
+                    nonce, back, '<button>Continue</button>'))
+            elseif method == 'renji' then
+                return page_out(200, verify_form('Security check', 'Enter the digits in the picture',
+                    '<div style="margin-bottom:16px">' .. captcha_svg(answer) .. '</div>' ..
+                    '<input name="a" autocomplete="off" autofocus maxlength="4" inputmode="numeric">',
+                    nonce, back, '<button>Continue</button>'))
+            end
+            return page_out(200, verify_form('Security check', 'Drag the slider to the end to continue',
+                '<div class="s" id="s"><i id="t"></i><span>Slide to verify</span><b id="h"></b></div>' ..
+                '<input type="hidden" name="a" id="a"><input type="hidden" name="d" id="d">',
+                nonce, back,
+                '<script>(function(){var s=document.getElementById("s"),h=document.getElementById("h"),' ..
+                't=document.getElementById("t"),x0=null,t0=0,max=0,done=false;function pos(e){return(e.touches?e.touches[0]:e).clientX}' ..
+                'function down(e){if(done)return;x0=pos(e);t0=Date.now();max=s.clientWidth-h.offsetWidth;e.preventDefault()}' ..
+                'function move(e){if(x0===null||done)return;var dx=Math.max(0,Math.min(max,pos(e)-x0));h.style.left=dx+"px";t.style.width=(dx+20)+"px";' ..
+                'if(dx>=max-1){done=true;document.getElementById("a").value="slide";document.getElementById("d").value=Date.now()-t0;' ..
+                'document.getElementById("f").submit()}}function up(){if(!done&&x0!==null){h.style.left="0";t.style.width="0"}x0=null}' ..
+                'h.addEventListener("mousedown",down);h.addEventListener("touchstart",down);document.addEventListener("mousemove",move);' ..
+                'document.addEventListener("touchmove",move);document.addEventListener("mouseup",up);document.addEventListener("touchend",up)})()</script>'))
+        end
+        method = 'browser'
+    end
     -- the token travels reversed + base64'd; the page undoes that in JS
     local tok = ngx.encode_base64(verify_token(ips, ua):reverse())
     local tpl = state.challenge_html or
         '<!doctype html><meta charset="utf-8"><title>Checking your browser</title>' ..
         '<p>Checking your browser&hellip;</p><script>{script}</script>'
-    local script = fmt("(function(){var t=atob('%s').split('').reverse().join('');" ..
-        "document.cookie='wafpro_v='+t+'; path=/; max-age=86400; SameSite=Lax';" ..
-        "setTimeout(function(){location.reload()},600)})();", tok)
-    ngx.status = 200
-    ngx.header['Content-Type'] = 'text/html; charset=utf-8'
-    ngx.header['Cache-Control'] = 'no-store'
-    ngx.print((tpl:gsub('{script}', function() return script end)))
-    return ngx.exit(200)
+    local script
+    if method == 'js' then
+        -- Redirect: set the cookie and go straight back to the page
+        script = fmt("(function(){var t=atob('%s').split('').reverse().join('');" ..
+            "document.cookie='wafpro_v='+t+'; path=/; max-age=86400; SameSite=Lax';" ..
+            "location.replace(location.href)})();", tok)
+    else
+        -- Browser: a small hash puzzle first, so the page must really execute
+        local salt = fmt('%x', math.random(0, 0x7fffffff))
+        script = fmt("(function(){var t=atob('%s').split('').reverse().join(''),s='%s',n=0,h;" ..
+            "function f(x){var a=2166136261;for(var i=0;i<x.length;i++){a^=x.charCodeAt(i);a=(a*16777619)>>>0}return a}" ..
+            "do{h=f(s+n);n++}while(h%%4096!==0&&n<2000000);" ..
+            "document.cookie='wafpro_v='+t+'; path=/; max-age=86400; SameSite=Lax';" ..
+            "setTimeout(function(){location.reload()},300)})();", tok, salt)
+    end
+    return page_out(200, (tpl:gsub('{script}', function() return script end)))
+end
+
+-- POST /.wafpro-verify from the code / captcha / slide pages
+local function verify_answer(ips, ua)
+    ngx.req.read_body()
+    local args = ngx.req.get_post_args(10) or {}
+    local nonce, answer = tostring(args.n or ''), tostring(args.a or ''):gsub('%s', '')
+    local back = tostring(args.r or '/')
+    if back:sub(1, 1) ~= '/' or back:sub(1, 2) == '//' then back = '/' end
+    local dict = ngx.shared.wafpro_cc
+    local want = dict and nonce ~= '' and dict:get('vc:' .. nonce)
+    if want then
+        dict:delete('vc:' .. nonce)
+        local a, ip = want:match('^([^|]*)|(.*)$')
+        -- a slider dragged faster than a person can is a script
+        local fast = a == 'slide' and (tonumber(args.d) or 0) < 250
+        if ip == ips and a == answer and not fast then
+            ngx.header['Set-Cookie'] = 'wafpro_v=' .. verify_token(ips, ua) .. '; Path=/; Max-Age=86400; SameSite=Lax'
+        end
+    end
+    return ngx.redirect(back, 302)
 end
 
 -- ---------------- multipart / PHP2Shell guard ----------------
@@ -1461,6 +1702,21 @@ end
 -- URL CC defense: a per-URL budget, checked before the URL whitelist gets a
 -- say (the stock WAF's priority) — a login or SMS endpoint can be whitelisted
 -- from the filters and still not be hammered
+-- the first GET / POST argument whose value matches a regex, as name=value
+local function args_hit(t, pattern)
+    if not t then return nil end
+    local re_find = ngx.re.find
+    for k, v in pairs(t) do
+        if type(v) ~= 'table' then v = { v } end
+        for i = 1, #v do
+            local val = type(v[i]) == 'string' and v[i] or ''
+            local ok, a = pcall(re_find, val, pattern, 'jo')
+            if ok and a then return tostring(k) .. '=' .. val:sub(1, 200) end
+        end
+    end
+    return nil
+end
+
 local function url_cc_check(site, sr, path, ips, cfg)
     local dict = ngx.shared.wafpro_cc
     if not dict then return end
@@ -1547,6 +1803,20 @@ local function site_rules_check(site, sr, ctx, ips, cfg)
             if (U.allow and not U.methods[m]) or (not U.allow and U.methods[m]) then
                 return deny(ips, site, 'url-method', tostring(ctx.method) .. ' ' .. path,
                             tonumber(cfg.method_status) or 405)
+            end
+        end
+    end
+
+    -- URL filter: at this URL, a GET or POST parameter whose value contains
+    -- the filter is refused
+    for i = 1, #sr.ufilter do
+        local F = sr.ufilter[i]
+        if match_any({ F.path }, path) then
+            local hit = args_hit(ngx.req.get_uri_args(200), F.rule)
+            if not hit and form_body(ctx) then hit = args_hit(ngx.decode_args(ctx.body_raw or '', 300), F.rule) end
+            if hit then
+                ngx.ctx.wafpro_rx = F.rule
+                return deny(ips, site, 'url-filter', hit, tonumber(cfg.get_status) or 403)
             end
         end
     end
@@ -1646,6 +1916,11 @@ for w in ([[123456 password 12345678 qwerty 123456789 12345 1234 111111 1234567 
 local PASS_FIELDS = { password = true, pass = true, pwd = true, passwd = true, user_pass = true,
                       log_pass = true, login_password = true }
 
+-- a rule set as this site runs it (its own copy when rules are off here)
+local function rx(sc, name)
+    return (sc.rxs and sc.rxs[name]) or state['r_' .. name]
+end
+
 function _M.access()
     local cfg = state.cfg
     if not cfg or cfg.open == false then return end
@@ -1687,6 +1962,11 @@ function _M.access()
     local blocked = ngx.shared.wafpro_block
     if blocked and blocked:get(ips) then
         return deny(ips, site, 'banned', ips, tonumber(cfg.black_status) or 444)
+    end
+
+    -- answers from the code / captcha / slide verification pages
+    if ngx.var.uri == VERIFY_PATH and ngx.var.request_method == 'POST' then
+        return verify_answer(ips, ngx.var.http_user_agent)
     end
 
     -- known-malicious IP feed
@@ -1739,6 +2019,11 @@ function _M.access()
         elseif res then
             return                                -- allow matched; deny already exited
         end
+    end
+
+    -- read-only mode: only page views reach the site
+    if sc.readonly and ctx.method ~= 'GET' and ctx.method ~= 'HEAD' and ctx.method ~= 'OPTIONS' then
+        return deny(ips, site, 'readonly', tostring(ctx.method), 403)
     end
 
     -- request method
@@ -1837,6 +2122,22 @@ function _M.access()
         region_apply(state.region_by_site['*'])
     end
 
+    -- Spider pond: crawlers refused for this site (all of them when its
+    -- pond is off), answered with the status set per crawler
+    if ua and #state.spiders > 0 and (not sc.spider or next(sc.spider_map)) then
+        local re_find = ngx.re.find
+        for i = 1, #state.spiders do
+            local sp = state.spiders[i]
+            local ok, hit = pcall(re_find, ua, sp.rx, 'joi')
+            if ok and hit then
+                if not sc.spider then return deny(ips, site, 'spider', sp.name, 444) end
+                local code = sc.spider_map[sp.name]
+                if code then return deny(ips, site, 'spider', sp.name, code) end
+                break
+            end
+        end
+    end
+
     -- fake spider: claims to be a search engine but is not crawling from the
     -- IPs that engine publishes. Real crawlers are let through untouched.
     -- needs the verified list: read_all gives '' for an empty file, which is
@@ -1853,26 +2154,49 @@ function _M.access()
 
     -- user-agent
     if sc.ua then
-        if match_rx(state.r_ua, ua or '') then
+        if match_rx(rx(sc, 'ua'), ua or '') then
             return deny(ips, site, 'user-agent', ua, tonumber(cfg.ua_status) or 403)
         end
     end
 
-    -- scanner paths: matched on the path alone. Matching the raw request_uri
-    -- let "/.env?x" slip past a "/\.env(/|$)" rule.
+    -- Malicious Download Defense: probes for backups, source and secrets
+    -- (.env, .git, dumps), matched on the path alone. Matching the raw
+    -- request_uri let "/.env?x" slip past a "/\.env(/|$)" rule.
+    if sc.download ~= false and match_rx(rx(sc, 'scan'), ngx.unescape_uri(ctx.uri)) then
+        return deny(ips, site, 'scan', uri, tonumber(cfg.scan_status) or 444)
+    end
     if sc.scan then
-        if match_rx(state.r_scan, ngx.unescape_uri(ctx.uri)) then
-            return deny(ips, site, 'scan', uri, tonumber(cfg.scan_status) or 444)
+        -- Common Scanner Filtering Rules: what scanners leave in headers,
+        -- cookies and parameters (names and values)
+        local sb = state.scan_black
+        if sb.header and sb.header ~= '' then
+            local hs = ngx.req.get_headers(100)
+            for k, v in pairs(hs) do
+                if type(v) == 'table' then v = concat(v, ',') end
+                local hit = match_any({ sb.header }, k) or match_any({ sb.header }, v)
+                if hit then ngx.ctx.wafpro_rx = hit; return deny(ips, site, 'scan', k .. ': ' .. tostring(v):sub(1, 200), tonumber(cfg.scan_status) or 444) end
+            end
+        end
+        if sb.cookie and sb.cookie ~= '' and ngx.var.http_cookie and match_rx({ sb.cookie }, ngx.var.http_cookie) then
+            return deny(ips, site, 'scan', ngx.var.http_cookie:sub(1, 200), tonumber(cfg.scan_status) or 444)
+        end
+        if sb.args and sb.args ~= '' then
+            local hit = (ngx.var.args and match_rx({ sb.args }, ngx.unescape_uri(ngx.var.args)))
+            if not hit then
+                local b = form_body(ctx)
+                if b then hit = match_rx({ sb.args }, b) end
+            end
+            if hit then return deny(ips, site, 'scan', uri, tonumber(cfg.scan_status) or 444) end
         end
     end
 
     -- known exploits (virtual patches): decoded request line + form body
-    if sc.nday and #state.r_nday > 0 then
+    if sc.nday and #rx(sc, 'nday') > 0 then
         local line = ngx.unescape_uri(uri):lower()
-        local hit = match_rx(state.r_nday, line)
+        local hit = match_rx(rx(sc, 'nday'), line)
         if not hit then
             local b = form_body(ctx)
-            if b then hit = match_rx(state.r_nday, b) end
+            if b then hit = match_rx(rx(sc, 'nday'), b) end
         end
         if hit then return deny(ips, site, 'nday', hit, tonumber(cfg.get_status) or 403) end
     end
@@ -1908,7 +2232,7 @@ function _M.access()
     -- a pattern matched across the whole string fires on text that spans
     -- two unrelated fields
     if sc.get and ngx.var.args then
-        local k, v = each_value(ngx.req.get_uri_args(200), regex_judge(state.r_get, false))
+        local k, v = each_value(ngx.req.get_uri_args(200), regex_judge(rx(sc, 'get'), false))
         if k then
             return deny(ips, site, 'get', k .. '=' .. v, tonumber(cfg.get_status) or 403)
         end
@@ -1917,7 +2241,7 @@ function _M.access()
     -- cookie
     if sc.cookie then
         local ck = ngx.var.http_cookie
-        if match_rx(state.r_cookie, ck) then
+        if match_rx(rx(sc, 'cookie'), ck) then
             return deny(ips, site, 'cookie', ck, tonumber(cfg.cookie_status) or 403)
         end
     end
@@ -1927,7 +2251,7 @@ function _M.access()
         if sc.post then
             local body = form_body(ctx)
             if body then
-                local k, v = each_value(ngx.decode_args(ctx.body_raw or '', 300), regex_judge(state.r_post, true))
+                local k, v = each_value(ngx.decode_args(ctx.body_raw or '', 300), regex_judge(rx(sc, 'post'), true))
                 if k then
                     return deny(ips, site, 'post', k .. '=' .. v, tonumber(cfg.post_status) or 403)
                 end
@@ -1944,7 +2268,7 @@ function _M.access()
             -- a quote) are decoded first so they cannot hide them
             local jb = json_body(ctx)
             if jb then
-                local judge = regex_judge(state.r_post, false)
+                local judge = regex_judge(rx(sc, 'post'), false)
                 for _, v in ipairs(json_strings(jb)) do
                     local k, val = judge('json', v)
                     if k then
@@ -2020,11 +2344,29 @@ function _M.access()
     -- crawlers returned earlier; assets and API calls are not challenged.
     local vpath = ctx.uri
     local exempt = sr and path_in(sr.vwhite, vpath)
-    if not static and not exempt and wants_html() and not verified(ips, ua) then
-        if sc.browser then return challenge(ips, site, ua, 'browser verification') end
+    local page = not static and not exempt and wants_html()
+    -- the verification method is chosen for Enhanced Mode; Standard Mode
+    -- (URL CC defense, regional verification) always redirects (JS)
+    local method = sc.cc_mode == 'enhanced' and sc.cc_verify or 'js'
+    if page and not verified(ips, ua) then
+        if sc.browser then return challenge(ips, site, ua, 'browser verification', 'browser') end
         -- URL enhancement mode: these pages always need the browser check
-        if sr and path_in(sr.uverify, vpath) then return challenge(ips, site, ua, 'url verification') end
+        if sr and path_in(sr.uverify, vpath) then return challenge(ips, site, ua, 'url verification', method) end
+        if sc.cc_open then
+            -- CC Enhanced Mode: every visitor verifies once
+            if sc.cc_mode == 'enhanced' then return challenge(ips, site, ua, 'cc enhanced mode', method) end
+            -- Regional verification: visitors from the chosen regions verify
+            if sc.cvset then
+                local hit = kind == 4 and in_ranges(sc.cvset.v4 or '', key) or
+                            (kind == 6 and in_ranges6(sc.cvset.v6 or '', key))
+                if hit then return challenge(ips, site, ua, 'regional verification', method) end
+            end
+        end
     end
+
+    -- Dynamic encryption (Crawl Protection): HTML pages go out encrypted
+    -- and are decoded by the browser
+    if sc.enc and page then ngx.ctx.wafpro_enc = sc.enc_text ~= '' and sc.enc_text or true end
 
     -- rate-driven checks last: only clean requests count toward them.
     -- static assets are exempt from CC (config switch) — a page loads many.
@@ -2032,13 +2374,32 @@ function _M.access()
     local rate = (sc.cc_open or sc.wait or sc.smart_cc) and site_rate(site) or 0
     if sc.wait then wait_check(site, sc, ips, rate) end
     if sc.crawl then crawl_check(site, sc, ips, ua) end
+    if sc.cc_open then
+        -- Single IP Defense: requests per IP per day (static files only when
+        -- "Include Static Resources" is on)
+        if sc.cc_ipmax_open and sc.cc_ipmax > 0 and (sc.cc_ipmax_static or not static) then
+            local dict = ngx.shared.wafpro_cc
+            if dict then
+                local k24 = 'd24:' .. site .. ':' .. ips
+                local n = dict:incr(k24, 1)
+                if not n then dict:set(k24, 1, 86400); n = 1 end
+                if n > sc.cc_ipmax then
+                    dict:delete(k24)
+                    ban(ips, sc.cc_block, site, 'ip-max', n)
+                    return deny(ips, site, 'ip-max', fmt('%d requests in 24h (limit %d)', n, sc.cc_ipmax),
+                                tonumber(cfg.cc_status) or 444)
+                end
+            end
+        end
+    end
     if sc.cc_open and not skip_cc then
-        -- challenge mode: a visitor that proved it is a browser gets 4x the
-        -- budget, and one over the limit is asked to verify instead of banned
+        -- URL CC defense: a visitor over the limit on a page is asked to
+        -- verify (on that URL) instead of being banned; once verified it
+        -- gets 4x the allowance, and only past that is it banned.
         -- automatic mode: a site taking more than cc_auto_limit requests in
-        -- cc_auto_cycle seconds switches to the browser-check mode for
-        -- cc_auto_hold seconds, then falls back on its own
-        if cfg.cc_auto == true and sc.cc_mode ~= 'challenge' then
+        -- cc_auto_cycle seconds switches URL CC defense on for cc_auto_hold
+        -- seconds, then falls back on its own
+        if cfg.cc_auto == true and not sc.cc_url then
             local dict = ngx.shared.wafpro_cc
             if dict then
                 local hot = dict:get('auto:' .. site)
@@ -2051,18 +2412,18 @@ function _M.access()
                         hot = 1
                     end
                 end
-                if hot then sc = setmetatable({ cc_mode = 'challenge' }, { __index = sc }) end
+                if hot then sc = setmetatable({ cc_url = true }, { __index = sc }) end
             end
         end
-        if sc.cc_mode == 'challenge' then
+        if sc.cc_url or sc.cc_mode == 'challenge' then
             if verified(ips, ua) then
                 local saved = sc.cc_limit
                 sc = setmetatable({ cc_limit = saved * 4 }, { __index = sc })
-            elseif wants_html() and not exempt then
+            elseif page then
                 local dict = ngx.shared.wafpro_cc
-                local n = dict and dict:get(ips .. '|' .. site) or 0
+                local n = dict and dict:get(cc_key(sc, site, ips)) or 0
                 if n >= sc.cc_limit then
-                    return challenge(ips, site, ua, 'cc challenge')
+                    return challenge(ips, site, ua, 'cc url defense', method)
                 end
             end
         end
@@ -2100,21 +2461,55 @@ end
 function _M.header_filter()
     dirscan_count()
     local repl = ngx.ctx.wafpro_repl
-    if not repl and not ngx.ctx.wafpro_leak then return end
+    if not repl and not ngx.ctx.wafpro_leak and not ngx.ctx.wafpro_enc then return end
     local ct = ngx.header['Content-Type'] or ''
     if type(ct) == 'table' then ct = ct[1] or '' end
     local enc = ngx.header['Content-Encoding']
     if not ct:lower():find('text/html', 1, true) or (enc and enc ~= '' and enc ~= 'identity') then
         ngx.ctx.wafpro_repl = nil
         ngx.ctx.wafpro_leak = nil
+        ngx.ctx.wafpro_enc = nil
         return
     end
+    -- only a normal page is encrypted; redirects and errors pass as they are
+    if ngx.status ~= 200 then ngx.ctx.wafpro_enc = nil end
+    if not ngx.ctx.wafpro_repl and not ngx.ctx.wafpro_leak and not ngx.ctx.wafpro_enc then return end
     -- the body length changes, so the upstream's length no longer applies
     ngx.header['Content-Length'] = nil
     ngx.ctx.wafpro_buf = {}
 end
 
 local MAX_BUFFER = 4 * 1048576
+
+-- Dynamic encryption: the page is XORed with a key made for this one
+-- response and sent as base64 inside a small loader that decodes and writes
+-- it. Every visit gets different bytes; a client that does not run the
+-- script sees only the loader. text: what the loader shows meanwhile.
+local bxor = require('bit').bxor
+local function encrypt_page(body, text)
+    local klen = 16
+    local key = {}
+    for i = 1, klen do key[i] = math.random(1, 255) end
+    local out, n = {}, #body
+    local CH = 4096
+    for i = 1, n, CH do
+        local bytes = { byte(body, i, math.min(i + CH - 1, n)) }
+        for j = 1, #bytes do
+            bytes[j] = bxor(bytes[j], key[(i + j - 2) % klen + 1])
+        end
+        out[#out + 1] = char(unpack(bytes))
+    end
+    local kstr = {}
+    for i = 1, klen do kstr[i] = tostring(key[i]) end
+    local msg = text == true and 'Loading...' or html_esc(text)
+    return '<!doctype html><html><head><meta charset="utf-8"><meta name="viewport" ' ..
+        'content="width=device-width,initial-scale=1"><title></title></head><body>' ..
+        '<div style="font:14px sans-serif;color:#999;text-align:center;margin-top:20vh">' .. msg .. '</div>' ..
+        '<script>(function(){var k=[' .. concat(kstr, ',') .. '],d=atob("' .. ngx.encode_base64(concat(out)) .. '"),' ..
+        'b=new Uint8Array(d.length);for(var i=0;i<d.length;i++)b[i]=d.charCodeAt(i)^k[i%' .. klen .. '];' ..
+        'var h=new TextDecoder("utf-8").decode(b);document.open();document.write(h);document.close()})()</script>' ..
+        '</body></html>'
+end
 
 function _M.body_filter()
     local buf = ngx.ctx.wafpro_buf
@@ -2154,6 +2549,7 @@ function _M.body_filter()
         out[#out + 1] = body:sub(pos)
         body = concat(out)
     end
+    if ngx.ctx.wafpro_enc then body = encrypt_page(body, ngx.ctx.wafpro_enc) end
     ngx.arg[1] = body
     ngx.ctx.wafpro_buf = nil
 end

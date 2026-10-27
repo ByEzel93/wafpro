@@ -5,6 +5,10 @@ local RESYNC = 2
 local w = _G.WAFPRO
 if not w then return end
 
+-- every worker forks the master's random state: seed each one apart
+-- (verification nonces and codes)
+math.randomseed(ngx.now() * 1000 + ngx.worker.pid())
+
 local ok, err = ngx.timer.every(RESYNC, function(premature)
     if premature then return end
     local ok2, e = pcall(w.refresh)

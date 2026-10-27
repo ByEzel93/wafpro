@@ -21,6 +21,8 @@ geo.json
 geo/
 geo.new/
 update.json
+scan_black.json
+site_rule_off.json
 *.json.bak
 
 # macOS

@@ -1,5 +1,6 @@
 -- body_filter_by_lua_file: runs only for a response header.lua chose to
--- buffer (content replace / error-leak masking); all others stream through.
+-- buffer (content replace / error-leak masking / dynamic encryption); all
+-- others stream through.
 local w = _G.WAFPRO
 if not w or not ngx.ctx.wafpro_buf then return end
 local ok, err = pcall(w.body_filter)
