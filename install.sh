@@ -135,6 +135,7 @@ Uninstall_wafpro()
 		/etc/init.d/nginx reload 2>/dev/null
 	fi
 	rm -f /www/server/panel/BTPanel/static/img/soft_ico/ico-wafpro.png
+	rm -f /etc/cron.d/wafpro_update
 	rm -rf $enginePath
 	rm -rf $pluginPath
 	echo 'Successify'

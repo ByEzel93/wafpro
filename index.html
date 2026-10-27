@@ -1,5 +1,6 @@
 <div id="wafpro-app" style="visibility:hidden">
   <div class="wp-tabs" id="wp-tabs"></div>
+  <div class="wp-upd" id="wp-upd" style="display:none"></div>
     <div class="wp-body" id="wp-body"><div class="wp-loading">Loading...</div></div>
 </div>
 <script type="text/javascript">
@@ -13,8 +14,8 @@
    the modules arrived. The page stays hidden until the stylesheet is in and
    app.js has drawn the first tab. */
 (function () {
-  var V = '2.2.1', BASE = '/wafpro/static/';
-  var FILES = ["js/core.js", "js/pages/blockade.js", "js/pages/lists.js", "js/pages/rules.js", "js/pages/exclusive.js", "js/pages/overview.js", "js/pages/website.js", "js/pages/region.js", "js/pages/traffic.js", "js/pages/attackmap.js", "js/pages/report.js", "js/pages/global.js", "js/pages/webshell.js", "js/shared.js", "js/app.js"];
+  var V = '2.2.2', BASE = '/wafpro/static/';
+  var FILES = ["js/core.js", "js/pages/blockade.js", "js/pages/lists.js", "js/pages/rules.js", "js/pages/exclusive.js", "js/pages/overview.js", "js/pages/website.js", "js/pages/region.js", "js/pages/traffic.js", "js/pages/attackmap.js", "js/pages/report.js", "js/pages/global.js", "js/pages/webshell.js", "js/shared.js", "js/update.js", "js/app.js"];
   var W = window.WAFPRO = window.WAFPRO || {};
 
   // fill the dialog body below the app's own top edge

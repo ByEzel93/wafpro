@@ -1532,6 +1532,181 @@ p{margin:0;color:#606266}
         public.serviceReload()
         return public.returnMsg(True, 'Engine updated and nginx reloaded')
 
+    # ----------------------------------------------------------------
+    # plugin self-update
+    # ----------------------------------------------------------------
+    # The store's own Update button only exists for plugins aaPanel hosts
+    # (it asks their API by soft_id), so a third-party plugin updates itself:
+    # GitHub's latest release carries wafpro-<version>.zip, laid out like the
+    # zip users upload by hand (a wafpro/ folder). Installing does what the
+    # panel's input_zip does: copy over the plugin dir (settings and data
+    # files are not in the zip, so they stay) and run install.sh, which
+    # recompiles the rules and reloads nginx only on a passing nginx -t.
+    UPDATE_FILE = PLUGIN_PATH + 'update.json'
+    UPDATE_API = 'https://api.github.com/repos/ByEzel93/wafpro/releases/latest'
+    UPDATE_CRON = '/etc/cron.d/wafpro_update'
+    UPDATE_TTL = 6 * 3600
+
+    def _version(self):
+        info = self._read_json(PLUGIN_PATH + 'info.json', {}) or {}
+        return str(info.get('versions') or info.get('version') or '0')
+
+    @staticmethod
+    def _vtuple(v):
+        return tuple(int(x) for x in re.findall(r'\d+', str(v))[:4])
+
+    def _update_state(self):
+        st = self._read_json(self.UPDATE_FILE, {}) or {}
+        st['auto'] = bool(st.get('auto')) and os.path.exists(self.UPDATE_CRON)
+        return st
+
+    def _fetch_release(self):
+        import urllib.request
+        req = urllib.request.Request(self.UPDATE_API, headers={
+            'User-Agent': 'wafpro', 'Accept': 'application/vnd.github+json'})
+        rel = json.loads(urllib.request.urlopen(req, timeout=20).read().decode('utf-8'))
+        ver = str(rel.get('tag_name') or '').lstrip('vV')
+        asset = None
+        for a in rel.get('assets') or []:
+            if a.get('name') == 'wafpro-{}.zip'.format(ver):
+                asset = a
+                break
+        if not ver or not asset:
+            raise ValueError('the latest release has no wafpro-{}.zip'.format(ver or '?'))
+        digest = str(asset.get('digest') or '')
+        return {
+            'version': ver,
+            'notes': rel.get('body') or '',
+            'url': asset.get('browser_download_url'),
+            'size': asset.get('size') or 0,
+            'sha256': digest[7:] if digest.startswith('sha256:') else '',
+            'page': rel.get('html_url') or '',
+            'date': (rel.get('published_at') or '')[:10],
+        }
+
+    def update_check(self, get=None):
+        '''Latest release vs the installed version. Cached for a few hours
+        (GitHub allows 60 anonymous API calls an hour per IP); force=1 skips
+        the cache.'''
+        st = self._update_state()
+        force = str(self._arg(get, 'force', '0')) == '1' if get else False
+        if force or not st.get('latest') or time.time() - st.get('checked', 0) > self.UPDATE_TTL:
+            try:
+                st['latest'] = self._fetch_release()
+                st['checked'] = int(time.time())
+                st.pop('error', None)
+            except Exception as e:
+                st['error'] = 'Could not reach GitHub: {}'.format(e)
+                st['checked'] = int(time.time())
+            self._write_json(self.UPDATE_FILE, st)
+        cur = self._version()
+        latest = st.get('latest') or {}
+        return {
+            'status': True,
+            'current': cur,
+            'latest': latest,
+            'available': bool(latest) and self._vtuple(latest.get('version')) > self._vtuple(cur),
+            'auto': st['auto'],
+            'checked': time.strftime('%Y-%m-%d %H:%M', time.localtime(st['checked'])) if st.get('checked') else '',
+            'error': st.get('error', ''),
+            'last': st.get('last') or {},
+        }
+
+    def update_install(self, get=None):
+        import hashlib
+        import shutil
+        import zipfile
+        import urllib.request
+        chk = self.update_check(get)
+        rel = chk['latest']
+        if not chk['available']:
+            return public.returnMsg(False, chk['error'] or 'Already on the latest version ({})'.format(chk['current']))
+        tmp = '/www/server/panel/temp/wafpro_update/'
+        bak = tmp + 'backup/'
+        shutil.rmtree(tmp, ignore_errors=True)
+        os.makedirs(bak)
+
+        def fail(msg):
+            shutil.rmtree(tmp, ignore_errors=True)
+            self._update_log(rel['version'], False, msg)
+            return public.returnMsg(False, msg)
+
+        try:
+            req = urllib.request.Request(rel['url'], headers={'User-Agent': 'wafpro'})
+            body = urllib.request.urlopen(req, timeout=120).read()
+        except Exception as e:
+            return fail('Download failed: {}'.format(e))
+        if rel.get('sha256') and hashlib.sha256(body).hexdigest() != rel['sha256']:
+            return fail('Download is corrupt (sha256 does not match the release)')
+        zpath = tmp + 'wafpro.zip'
+        with open(zpath, 'wb') as f:
+            f.write(body)
+        try:
+            with zipfile.ZipFile(zpath) as z:
+                names = z.namelist()
+                if any(n.startswith('/') or '..' in n.split('/') or not n.startswith('wafpro/') for n in names):
+                    return fail('Unexpected layout in the release zip')
+                z.extractall(tmp + 'new/')
+        except zipfile.BadZipFile:
+            return fail('Release zip cannot be opened')
+        src = tmp + 'new/wafpro/'
+        info = self._read_json(src + 'info.json', {}) or {}
+        if info.get('name') != 'wafpro' or not os.path.exists(src + 'wafpro_main.py') \
+                or self._vtuple(info.get('versions')) != self._vtuple(rel['version']):
+            return fail('Release zip does not contain WAF Pro {}'.format(rel['version']))
+
+        # keep the files the zip replaces, to put them back if install.sh fails
+        files = [os.path.relpath(os.path.join(d, f), src) for d, _, fs in os.walk(src) for f in fs]
+        for f in files:
+            if os.path.isfile(PLUGIN_PATH + f):
+                os.makedirs(os.path.dirname(bak + f), exist_ok=True)
+                shutil.copy2(PLUGIN_PATH + f, bak + f)
+        old = self._version()
+        public.ExecShell('\\cp -a -r {}* {}'.format(src, PLUGIN_PATH))
+        out = public.ExecShell('cd {} && bash install.sh update 2>&1'.format(PLUGIN_PATH))[0]
+        if 'Successify' not in out:
+            for f in files:
+                if os.path.exists(bak + f):
+                    shutil.copy2(bak + f, PLUGIN_PATH + f)
+                elif os.path.exists(PLUGIN_PATH + f):
+                    os.remove(PLUGIN_PATH + f)
+            public.ExecShell('cd {} && bash install.sh update 2>&1'.format(PLUGIN_PATH))
+            return fail('install.sh failed, restored {}: {}'.format(old, out.strip().split('\n')[-1][:200]))
+        shutil.rmtree(tmp, ignore_errors=True)
+        icon = PLUGIN_PATH + 'icon.png'
+        if os.path.exists(icon):
+            shutil.copyfile(icon, '/www/server/panel/BTPanel/static/img/soft_ico/ico-wafpro.png')
+        msg = 'Updated from {} to {}'.format(old, rel['version'])
+        self._update_log(rel['version'], True, msg)
+        return public.returnMsg(True, msg)
+
+    def _update_log(self, version, ok, msg):
+        st = self._read_json(self.UPDATE_FILE, {}) or {}
+        st['last'] = {'version': version, 'ok': ok, 'msg': msg, 'time': time.strftime('%Y-%m-%d %H:%M:%S')}
+        self._write_json(self.UPDATE_FILE, st)
+        public.WriteLog('WAF Pro', 'Plugin update: ' + msg)
+
+    def update_auto(self, get):
+        '''Automatic updates: a daily cron job (minute picked at random so
+        servers don't all ask GitHub at once) runs `wafpro_main.py
+        auto_update`. Off unless turned on here.'''
+        import random
+        on = str(getattr(get, 'open', '0')) in ('1', 'true', 'True')
+        st = self._read_json(self.UPDATE_FILE, {}) or {}
+        if on:
+            line = '{} {} * * * root cd /www/server/panel && /www/server/panel/pyenv/bin/python3 ' \
+                   '{}wafpro_main.py auto_update >/dev/null 2>&1\n'.format(
+                       random.randint(0, 59), random.randint(2, 5), PLUGIN_PATH)
+            if not public.writeFile(self.UPDATE_CRON, line):
+                return public.returnMsg(False, 'Could not write ' + self.UPDATE_CRON)
+            os.chmod(self.UPDATE_CRON, 0o644)
+        elif os.path.exists(self.UPDATE_CRON):
+            os.remove(self.UPDATE_CRON)
+        st['auto'] = on
+        self._write_json(self.UPDATE_FILE, st)
+        public.WriteLog('WAF Pro', 'Automatic updates -> {}'.format(on))
+        return public.returnMsg(True, 'Automatic updates {}'.format('enabled' if on else 'disabled'))
+
     def set_switch(self, get):
         cfg = self._config()
         cfg['open'] = str(getattr(get, 'open', '1')) in ('1', 'true', 'True')
@@ -3985,3 +4160,14 @@ p{margin:0;color:#606266}
         self._compile()
         public.WriteLog('WAF Pro', 'CC initial rule applied to all sites')
         return public.returnMsg(True, 'CC rule applied to {} site(s)'.format(len(data)))
+
+
+if __name__ == '__main__':
+    # cron entry for automatic updates (see update_auto)
+    if len(sys.argv) > 1 and sys.argv[1] == 'auto_update':
+        m = wafpro_main()
+        if m._update_state().get('auto'):
+            class _Get:
+                force = '1'
+            print(m.update_install(_Get())['msg'])
+

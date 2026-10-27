@@ -8,6 +8,7 @@
   route();
   // the loader keeps the page hidden until this point (and the stylesheet)
   if (W.booted) W.booted();
+  W.updateBar();
 
   // exports
 })(window.WAFPRO = window.WAFPRO || {});

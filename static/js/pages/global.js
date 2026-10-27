@@ -194,7 +194,7 @@
         '<div class="wp-sc-bot"><div class="wp-sc-d">Wire the WAF Pro engine into nginx (tested with nginx -t, rolled back on failure).' +
           '<div class="wp-sc-n" style="color:inherit">' + engineStatusText(e, c.health) + '</div></div>' +
         '<div class="wp-sc-btns">' + (e.installed && !e.current ? '<span class="wp-btn ghost" id="g-engine-update">Update engine</span>' : '') +
-        '</div></div></div></div>';
+        '</div></div></div>' + W.updateCardHtml() + '</div>';
 
     G_SECTIONS.slice(1).forEach(function (sec) {
       h += '<div class="wp-g-sec" id="g-sec-' + sec[0] + '"><div class="wp-g-title muted">' + sec[1] + '</div>' +
@@ -269,6 +269,7 @@
       post('engine_wire', { open: on ? 1 : 0 }, function (rr) { layer.msg(rr.msg, { icon: rr.status ? 1 : 2 }); route(); });
     });
     $('#g-sim').on('click', function () { selfTestDialog(''); });
+    W.bindUpdateCard();
     $('#g-engine-update').on('click', function () {
       var ld = layer.msg('Updating engine...', { icon: 16, time: 0, shade: 0.3 });
       post('engine_update', {}, function (rr) { layer.close(ld); layer.msg(rr.msg, { icon: rr.status ? 1 : 2 }); route(); });

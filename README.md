@@ -112,8 +112,16 @@ A few details:
    nginx include, runs `nginx -t` and rolls back if the test fails.
 4. Turn protection on for your sites in the **WebSite** tab.
 
-To update, upload the new zip the same way. The rule files and libinjection
-are rebuilt, and nginx is reloaded only if `nginx -t` passes.
+From 2.2.2 on, the plugin updates itself. It checks the latest GitHub
+release a few times a day, and when a newer one is out a bar at the top of
+the plugin offers to install it. To install new releases without asking,
+turn on **Automatic updates** in the Global tab (a daily cron job,
+`/etc/cron.d/wafpro_update`). Settings, rules and logs are kept. The rule
+files and libinjection are rebuilt, and nginx is reloaded only if `nginx -t`
+passes. If the installer fails, the previous version's files are put back.
+
+Older versions update by uploading the new zip the same way as a first
+install.
 
 ## Removing the engine by hand
 
